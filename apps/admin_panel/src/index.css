@@ -1,0 +1,155 @@
+:root {
+  --primary: #10b981;
+  --primary-dark: #059669;
+  --bg-dark: #111827;
+  --bg-card: #1f2937;
+  --text-light: #f3f4f6;
+  --text-dim: #9ca3af;
+  --danger: #ef4444;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', sans-serif;
+  background-color: var(--bg-dark);
+  color: var(--text-light);
+}
+
+.layout {
+  display: flex;
+  height: 100vh;
+}
+
+.sidebar {
+  width: 260px;
+  background-color: var(--bg-card);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #374151;
+}
+
+.content {
+  flex: 1;
+  padding: 30px;
+  overflow-y: auto;
+}
+
+.card {
+  background-color: var(--bg-card);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.btn {
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.btn-primary {
+  background-color: var(--primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: var(--primary-dark);
+}
+
+/* Custom Rider Marker */
+.custom-rider-icon {
+  background: transparent;
+  border: none;
+}
+
+.rider-marker-container {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.5s ease-out; /* Smooth rotation */
+}
+
+.rider-icon-inner {
+  z-index: 2;
+  background: white; /* Contrast against dark map */
+  border-radius: 50%;
+  padding: 5px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.rider-halo {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 20px;
+  background: rgba(16, 185, 129, 0.4); /* Emerald-500 */
+  border-radius: 50%;
+  z-index: 1;
+  animation: pulse-ring 2s infinite;
+}
+
+@keyframes pulse-ring {
+  0% {
+    width: 20px;
+    height: 20px;
+    opacity: 0.8;
+  }
+  100% {
+    width: 60px;
+    height: 60px;
+    opacity: 0;
+  }
+}
+
+/* Map specific tweaks */
+.leaflet-container {
+  background: #1f2937; /* Match dark theme bg */
+}
+
+.btn-danger {
+  background-color: var(--danger);
+  color: white;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  color: var(--text-dim);
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.nav-item:hover, .nav-item.active {
+  background-color: rgba(16, 185, 129, 0.1);
+  color: var(--primary);
+}
+
+input, select, textarea {
+  background-color: #374151;
+  border: 1px solid #4b5563;
+  color: white;
+  padding: 10px;
+  border-radius: 6px;
+  width: 100%;
+  margin-bottom: 15px;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: 2px solid var(--primary);
+  border-color: transparent;
+}
