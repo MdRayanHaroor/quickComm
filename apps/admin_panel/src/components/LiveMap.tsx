@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from 'react-leaflet';
 import { supabase } from '../supabaseClient';
 import 'leaflet/dist/leaflet.css';
 import RiderMarker from './RiderMarker';
@@ -85,7 +85,7 @@ const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, onStoreLocationUpdate,
     const [riders, setRiders] = useState<Record<string, RiderState>>({});
     const [viewCenter, setViewCenter] = useState<[number, number]>([17.3850, 78.4867]); 
     const [hasLocated, setHasLocated] = useState(false);
-    const mapRef = useRef<any>(null);
+    // const mapRef = useRef<any>(null);
 
     // Initial Geolocation
     useEffect(() => {
@@ -95,7 +95,7 @@ const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, onStoreLocationUpdate,
                     setViewCenter([position.coords.latitude, position.coords.longitude]);
                     setHasLocated(true);
                 },
-                (error) => {
+                (_error) => {
                     if (storeLocation) {
                         setViewCenter([storeLocation.lat, storeLocation.lng]);
                     }
@@ -125,7 +125,7 @@ const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, onStoreLocationUpdate,
             (position) => {
                 setViewCenter([position.coords.latitude, position.coords.longitude]);
             },
-            (error) => alert("Could not fetch device location.")
+            (_error) => alert("Could not fetch device location.")
         );
     };
 
