@@ -1,4 +1,4 @@
-
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -18,6 +18,14 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   List<dynamic>? _orderItems;
   Map<String, dynamic>? _riderLocation;
   bool _isLoading = true;
+  
+  // Subscription management
+  StreamSubscription? _riderLocationSubscription;
+  Timer? _retryTimer;
+  bool _isStreamError = false;
+
+  // Configurable boolean to show/hide path
+  bool _showPath = true; 
 
   @override
   void initState() {
@@ -26,29 +34,43 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     _subscribeToOrderUpdates();
   }
 
+  @override
+  void dispose() {
+    _riderLocationSubscription?.cancel();
+    _retryTimer?.cancel();
+    super.dispose();
+  }
+
   Future<void> _fetchOrderDetails() async {
-    final response = await SupabaseService.client
-        .from('orders')
-        .select('*, profiles:rider_id(full_name, phone_number)')
-        .eq('id', widget.orderId)
-        .single();
-    
-    final itemsResponse = await SupabaseService.client
-        .from('order_items')
-        .select('*, products(name, image_url)')
-        .eq('order_id', widget.orderId);
+    try {
+      final response = await SupabaseService.client
+          .from('orders')
+          .select('*, profiles:rider_id(full_name, phone_number)')
+          .eq('id', widget.orderId)
+          .single();
+      
+      final itemsResponse = await SupabaseService.client
+          .from('order_items')
+          .select('*, products(name, image_url)')
+          .eq('order_id', widget.orderId);
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() {
-      _order = response;
-      _orderItems = itemsResponse;
-      _isLoading = false;
-    });
+      setState(() {
+        _order = response;
+        _orderItems = itemsResponse;
+        _isLoading = false;
+      });
 
-    // Load location in background (don't block UI)
-    if (_order!['rider_id'] != null) {
-      _subscribeToRiderLocation(_order!['rider_id']);
+      // Start tracking if rider is assigned
+      if (_order!['rider_id'] != null) {
+        _subscribeToRiderLocation(_order!['rider_id']);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error fetching order: $e")));
+      }
     }
   }
 
@@ -70,7 +92,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
               _order = payload.newRecord;
             });
             // If rider is assigned and we aren't tracking yet
-            if (payload.newRecord['rider_id'] != null && _riderLocation == null) {
+            if (payload.newRecord['rider_id'] != null && _riderLocationSubscription == null) {
               _subscribeToRiderLocation(payload.newRecord['rider_id']);
             }
           },
@@ -78,52 +100,69 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         .subscribe();
   }
 
-  Future<void> _subscribeToRiderLocation(String riderId) async {
-    print("📍 Subscribing to location for Rider ID: $riderId");
-    
-    // 1. Initial Fetch
+  void _subscribeToRiderLocation(String riderId) {
+    // Cancel existing subscription if any
+    _riderLocationSubscription?.cancel();
+    _retryTimer?.cancel();
+
+    print("📍 Starting Rider Location Subscription for $riderId");
+
     try {
-      final data = await SupabaseService.client
-        .from('rider_locations')
-        .select()
-        .eq('rider_id', riderId)
-        .order('last_updated', ascending: false) // Get latest
-        .limit(1) // Force single row
-        .maybeSingle();
-      
-      print("📍 Initial Location Data: $data");
+        final stream = SupabaseService.client
+          .from('rider_locations')
+          .stream(primaryKey: ['id'])
+          .eq('rider_id', riderId)
+          .limit(1);
 
-      if (data != null && mounted) {
-          setState(() { _riderLocation = data; });
-      } else {
-          print("⚠️ No location data found for rider in DB.");
-      }
-    } catch (e) {
-      print("❌ Error fetching initial location: $e");
-    }
-
-    // 2. Realtime Subscription
-    SupabaseService.client
-        .channel('public:rider_locations:rider_id=eq.$riderId')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'rider_locations',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq, 
-            column: 'rider_id', 
-            value: riderId
-          ),
-          callback: (payload) {
-             print("📡 Realtime Location Update: ${payload.newRecord}");
-             if (payload.newRecord != null && mounted) {
-               setState(() {
-                 _riderLocation = payload.newRecord;
-               });
-             }
+        _riderLocationSubscription = stream.listen(
+          (List<Map<String, dynamic>> data) {
+            if (data.isNotEmpty) {
+              if (mounted) {
+                setState(() {
+                  _riderLocation = data.first;
+                  _isStreamError = false;
+                });
+              }
+            }
           },
-        )
-        .subscribe();
+          onError: (error) {
+            print("❌ Location Stream Error: $error");
+            if (mounted) {
+               setState(() => _isStreamError = true);
+            }
+            // Retry logic
+            _scheduleRetry(riderId);
+          },
+          onDone: () {
+            print("⚠️ Location Stream Closed unexpectedly.");
+            _scheduleRetry(riderId);
+          },
+          cancelOnError: false, // Keep listening if possible, though mostly we'll hit onError
+        );
+    } catch (e) {
+        print("❌ Error initializing stream: $e");
+        _scheduleRetry(riderId);
+    }
+  }
+
+  void _scheduleRetry(String riderId) {
+      if (!mounted) return;
+      _retryTimer?.cancel();
+      // Retry in 3 seconds
+      _retryTimer = Timer(const Duration(seconds: 3), () {
+          print("🔄 Retrying Rider Location Subscription...");
+          _subscribeToRiderLocation(riderId);
+      });
+  }
+
+  bool _isRiderOnline(String lastUpdatedStr) {
+    try {
+      final lastUpdated = DateTime.parse(lastUpdatedStr);
+      final diff = DateTime.now().difference(lastUpdated);
+      return diff.inMinutes < 5;
+    } catch (e) {
+      return false;
+    }
   }
 
   @override
@@ -133,7 +172,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     final status = _order!['status'];
     // Refined Logic (Map Mode): If status implies rider activity AND rider is assigned, we show Map View (or Map Loader)
     // This prevents layout shift.
-    final shouldShowMap = (status != 'delivered' && status != 'pending' && _order!['rider_id'] != null);
+    final shouldShowMap = (status == 'out_for_delivery');
     
     
     return Scaffold(
@@ -156,6 +195,18 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
             ),
           ),
           
+          if (_isStreamError && shouldShowMap)
+            Container(
+                width: double.infinity,
+                color: Colors.orangeAccent,
+                padding: const EdgeInsets.all(4),
+                child: const Text(
+                    "Connection unstable. Reconnecting...", 
+                    textAlign: TextAlign.center, 
+                    style: TextStyle(fontSize: 12)
+                ),
+            ),
+
           if (status == 'delivered')
              Expanded(
                child: Center(
@@ -175,52 +226,95 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
              )
           else if (shouldShowMap)
             Expanded(
-              child: _riderLocation == null 
-                ? const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        CircularProgressIndicator(), 
-                        SizedBox(height: 10), 
-                        Text("Locating Rider...")
-                      ],
-                    )
-                  )
-                : FlutterMap(
-                    options: MapOptions(
-                      initialCenter: LatLng(_riderLocation!['lat'], _riderLocation!['lng']),
-                      initialZoom: 15.0,
-                    ),
-                    children: [
-                      TileLayer(
-                        urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                        userAgentPackageName: 'com.quickcomm.user_app',
-                      ),
-                      MarkerLayer(
-                        markers: [
-                          Marker(
-                            point: LatLng(_riderLocation!['lat'], _riderLocation!['lng']),
-                            width: 60,
-                            height: 60,
+              child: _order!['rider_id'] == null 
+                  ? const Center(child: Text("Waiting for rider assignment..."))
+                  : _riderLocation == null 
+                      ? const Center(
                             child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(blurRadius: 5, color: Colors.black26)]),
-                                  child: Icon(Icons.delivery_dining, color: Theme.of(context).primaryColor, size: 30),
-                                ),
-                                Container(
-                                    color: Colors.white, 
-                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                    child: const Text("Rider", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold))
-                                )
+                                CircularProgressIndicator(), 
+                                SizedBox(height: 10), 
+                                Text("Locating Rider...")
                               ],
-                            ),
-                          ),
-                        ],
+                            )
+                        )
+                      : Builder(
+                          builder: (context) {
+                            final isOnline = _isRiderOnline(_riderLocation!['last_updated']);
+                            final riderLat = _riderLocation!['lat'];
+                            final riderLng = _riderLocation!['lng'];
+                            final orderLat = _order!['delivery_lat'];
+                            final orderLng = _order!['delivery_lng'];
+
+                            return FlutterMap(
+                                options: MapOptions(
+                                initialCenter: LatLng(riderLat, riderLng),
+                                initialZoom: 15.0,
+                                ),
+                                children: [
+                                TileLayer(
+                                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                    userAgentPackageName: 'com.quickcomm.user_app',
+                                ),
+                                
+                                // Path Layer
+                                if (_showPath && isOnline && orderLat != null && orderLng != null)
+                                    PolylineLayer(
+                                        polylines: [
+                                            Polyline(
+                                                points: [
+                                                    LatLng(riderLat, riderLng),
+                                                    LatLng(orderLat, orderLng),
+                                                ],
+                                                strokeWidth: 4.0,
+                                                color: Colors.blue.withOpacity(0.7),
+                                            )
+                                        ],
+                                    ),
+
+                                // Rider Marker Layer
+                                if (isOnline)
+                                MarkerLayer(
+                                    markers: [
+                                        Marker(
+                                            point: LatLng(riderLat, riderLng),
+                                            width: 60,
+                                            height: 60,
+                                            child: Column(
+                                            children: [
+                                                Container(
+                                                padding: const EdgeInsets.all(4),
+                                                decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [const BoxShadow(blurRadius: 5, color: Colors.black26)]),
+                                                child: Icon(Icons.delivery_dining, color: Theme.of(context).primaryColor, size: 30),
+                                                ),
+                                                Container(
+                                                    color: Colors.white, 
+                                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                                    child: const Text("Rider", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold))
+                                                )
+                                            ],
+                                            ),
+                                        ),
+                                    ],
+                                ),
+                                
+                                // Destination Marker
+                                if (orderLat != null && orderLng != null)
+                                    MarkerLayer(
+                                        markers: [
+                                            Marker(
+                                                point: LatLng(orderLat, orderLng),
+                                                width: 40,
+                                                height: 40,
+                                                child: const Icon(Icons.location_on, color: Colors.red, size: 40),
+                                            )
+                                        ]
+                                    )
+                                ],
+                            );
+                          }
                       ),
-                    ],
-                  ),
             )
           else 
             Expanded(
@@ -239,7 +333,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                     const SizedBox(height: 20),
                     Text(
                       status == 'pending' ? 'Waiting for Confirmation...' :
-                      status == 'confirmed' ? 'Chef is Preparing your meal!' :
+                      status == 'confirmed' ? 'Order confirmed! Food is being prepared. Waiting for rider to be assigned.' :
                       status == 'out_for_delivery' ? 'Rider is on the way!' :
                       'Order Delivered!',
                       style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),

@@ -35,7 +35,7 @@ class LocationService {
             accuracy: LocationAccuracy.high,
             distanceFilter: 10,
             forceLocationManager: true,
-            intervalDuration: const Duration(seconds: 5),
+            intervalDuration: const Duration(seconds: 10),
             // Foreground notification config
             foregroundNotificationConfig: const ForegroundNotificationConfig(
               notificationTitle: "Rider App",
@@ -79,7 +79,7 @@ class LocationService {
         'order_id': _activeOrderId,
         'lat': position.latitude,
         'lng': position.longitude,
-        'last_updated': DateTime.now().toIso8601String()
+        'last_updated': DateTime.now().toUtc().toIso8601String()
       });
     } catch (e) {
       print("❌ Error upserting location: $e");

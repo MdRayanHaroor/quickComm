@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart'; // Ensure this dependency is added or use simple intent
 import '../services/supabase_service.dart';
 import '../services/location_service.dart';
+import 'login_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -91,10 +92,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
         .subscribe();
   }
 
-  Future<void> _launchMaps(String? address) async {
-    if (address == null) return;
-    final query = Uri.encodeComponent(address);
-    final url = Uri.parse("https://www.google.com/maps/search/?api=1&query=$query");
+  Future<void> _launchMaps(String? address, double? lat, double? lng) async {
+    Uri url;
+    if (lat != null && lng != null) {
+      url = Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lng");
+    } else if (address != null) {
+      final query = Uri.encodeComponent(address);
+      url = Uri.parse("https://www.google.com/maps/search/?api=1&query=$query");
+    } else {
+      return;
+    }
+
     if (await canLaunchUrl(url)) {
       await launchUrl(url, mode: LaunchMode.externalApplication);
     } else {
@@ -145,7 +153,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               if (_isOnline) _toggleOnline();
               await SupabaseService.client.auth.signOut();
               if (!mounted) return;
-              Navigator.pop(context);
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (context) => LoginScreen()),
+                (route) => false
+              );
             },
           )
         ],
@@ -177,7 +188,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                            children: [
                              Expanded(
                                child: ElevatedButton.icon(
-                                 onPressed: () => _launchMaps(_activeOrder!['delivery_address']),
+                                 onPressed: () => _launchMaps(
+                                   _activeOrder!['delivery_address'],
+                                   _activeOrder!['delivery_lat'],
+                                   _activeOrder!['delivery_lng']
+                                 ),
                                  icon: const Icon(Icons.map),
                                  label: const Text("Navigate"),
                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
