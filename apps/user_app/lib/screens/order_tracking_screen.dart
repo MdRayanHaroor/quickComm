@@ -14,13 +14,14 @@ class OrderTrackingScreen extends StatefulWidget {
 }
 
 class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
+  final MapController _mapController = MapController();
   Map<String, dynamic>? _order;
   List<dynamic>? _orderItems;
   Map<String, dynamic>? _riderLocation;
   bool _isLoading = true;
   
   // Subscription management
-  StreamSubscription? _riderLocationSubscription;
+  RealtimeChannel? _riderLocationSubscription;
   Timer? _retryTimer;
   bool _isStreamError = false;
 
@@ -34,12 +35,16 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     _subscribeToOrderUpdates();
   }
 
-  @override
-  void dispose() {
-    _riderLocationSubscription?.cancel();
-    _retryTimer?.cancel();
-    super.dispose();
+@override
+void dispose() {
+  if (_riderLocationSubscription != null) {
+    SupabaseService.client.removeChannel(_riderLocationSubscription!);
   }
+  _retryTimer?.cancel();
+  _mapController.dispose();
+  super.dispose();
+}
+
 
   Future<void> _fetchOrderDetails() async {
     try {
@@ -100,47 +105,114 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         .subscribe();
   }
 
-  void _subscribeToRiderLocation(String riderId) {
+  Future<void> _subscribeToRiderLocation(String riderId) async {
     // Cancel existing subscription if any
-    _riderLocationSubscription?.cancel();
+    if (_riderLocationSubscription != null) {
+      await _riderLocationSubscription!.unsubscribe();
+      _riderLocationSubscription = null;
+    }
+
     _retryTimer?.cancel();
 
-    print("📍 Starting Rider Location Subscription for $riderId");
+    print("📍 Starting Rider Location Subscription for $riderId (Channel API)");
 
+    // 1. Initial Fetch
     try {
-        final stream = SupabaseService.client
+      final initialData = await SupabaseService.client
           .from('rider_locations')
-          .stream(primaryKey: ['id'])
+          .select()
           .eq('rider_id', riderId)
-          .limit(1);
+          .maybeSingle(); // Use maybeSingle to avoid error if no location yet
 
-        _riderLocationSubscription = stream.listen(
-          (List<Map<String, dynamic>> data) {
-            if (data.isNotEmpty) {
-              if (mounted) {
-                setState(() {
-                  _riderLocation = data.first;
-                  _isStreamError = false;
-                });
-              }
+      if (initialData != null && mounted) {
+        print("📍 Initial Rider Location: ${initialData['lat']}, ${initialData['lng']}");
+        setState(() {
+          _riderLocation = initialData;
+          _isStreamError = false;
+           // Optional: Smoothly animate camera to new location
+            try {
+              _mapController.move(
+                  LatLng(_riderLocation!['lat'], _riderLocation!['lng']), 
+                  _mapController.camera.zoom
+              );
+            } catch (e) {
+              // Controller might not be ready
             }
-          },
-          onError: (error) {
-            print("❌ Location Stream Error: $error");
-            if (mounted) {
-               setState(() => _isStreamError = true);
-            }
-            // Retry logic
-            _scheduleRetry(riderId);
-          },
-          onDone: () {
-            print("⚠️ Location Stream Closed unexpectedly.");
-            _scheduleRetry(riderId);
-          },
-          cancelOnError: false, // Keep listening if possible, though mostly we'll hit onError
-        );
+        });
+      }
     } catch (e) {
-        print("❌ Error initializing stream: $e");
+      print("❌ Error fetching initial location: $e");
+    }
+
+    // 2. Realtime Subscription
+    try {
+      _riderLocationSubscription =
+    SupabaseService.client.channel('rider_location_$riderId');
+
+      
+      _riderLocationSubscription!.onPostgresChanges(
+          event: PostgresChangeEvent.all, // Listen to all events (INSERT/UPDATE)
+          schema: 'public',
+          table: 'rider_locations',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq, 
+            column: 'rider_id', 
+            value: riderId
+          ),
+          callback: (payload) {
+            print("📍 Realtime Event Received: ${payload.eventType}");
+            if (!mounted) return;
+            
+            final newRecord = payload.newRecord;
+            if (newRecord.isNotEmpty) {
+                 print("📍 New Location (Realtime): ${newRecord['lat']}, ${newRecord['lng']}");
+                 setState(() {
+                    _riderLocation = newRecord;
+                     print("📍 Marker Updated: ${_riderLocation!['lat']}, ${_riderLocation!['lng']}");
+                    _isStreamError = false;
+
+                     // Optional: Smoothly animate camera to new location
+                      try {
+                        _mapController.move(
+                            LatLng(_riderLocation!['lat'], _riderLocation!['lng']), 
+                            _mapController.camera.zoom
+                        );
+                      } catch (e) {
+                        // Controller might not be ready
+                      }
+                 });
+            }
+          },
+        )
+        .subscribe((status, error) {
+  print("Realtime status: $status");
+
+  if (status == RealtimeSubscribeStatus.closed) {
+    print("Channel closed. Resubscribing...");
+    _scheduleRetry(riderId);
+  }
+
+  if (error != null) {
+    print("Realtime error: $error");
+    _scheduleRetry(riderId);
+  }
+});
+
+        
+        // Store channel reference if needed to unsubscribe later? 
+        // For Supabase generic channels, we usually just unsubscribe the client channel by name or let it clean up?
+        // Actually, the Supabase Flutter SDK handles channel cleanup via .unsubscribe(). 
+        // We can't store 'channel' in 'StreamSubscription' variable. 
+        // We need to change the type of _riderLocationSubscription or just store the channel.
+        
+        // NOTE: The previous code used StreamSubscription. We should probably add a RealtimeChannel variable.
+        // But to keep changes minimal and since we are using a specific variable name `_riderLocationSubscription`,
+        // let's change the class variable type or manage it differently.
+        // Wait, `channel.subscribe()` returns `RealtimeChannel`.
+        // I will need to update the `_riderLocationSubscription` type in the class or add a new variable `_riderChannel`.
+        
+    } catch (e) {
+        print("❌ Error initializing channel: $e");
         _scheduleRetry(riderId);
     }
   }
@@ -248,6 +320,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                             final orderLng = _order!['delivery_lng'];
 
                             return FlutterMap(
+                                mapController: _mapController,
                                 options: MapOptions(
                                 initialCenter: LatLng(riderLat, riderLng),
                                 initialZoom: 15.0,

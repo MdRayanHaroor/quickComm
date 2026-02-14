@@ -15,6 +15,7 @@ const Riders: React.FC = () => {
     const [riderLastUpdates, setRiderLastUpdates] = useState<Record<string, string>>({}); // Store ISO timestamps
     const [currentTime, setCurrentTime] = useState(new Date().getTime()); // Trigger re-render for time checks
     const [selectedRiderId, setSelectedRiderId] = useState<string | null>(null);
+    const [riderStats, setRiderStats] = useState<Record<string, number>>({});
     
     // Store Location State (persisted in local storage for now)
     const [storeLocation, setStoreLocation] = useState<{lat: number, lng: number} | undefined>(() => {
@@ -46,8 +47,21 @@ const Riders: React.FC = () => {
                 fetchRiders(); // Reload list
             })
             .subscribe();
+            
+        // 3. Subscribe to STATS updates
+        const statsChannel = supabase
+            .channel('public:rider_daily_stats')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'rider_daily_stats' }, (payload: any) => {
+                if (payload.new && payload.new.rider_id) {
+                    setRiderStats(prev => ({
+                        ...prev,
+                        [payload.new.rider_id]: payload.new.online_minutes
+                    }));
+                }
+            })
+            .subscribe();
 
-        // 3. Periodic "Offline" Check (every minute)
+        // 4. Periodic "Offline" Check (every minute)
         const interval = setInterval(() => {
             setCurrentTime(new Date().getTime());
         }, 60000);
@@ -55,13 +69,17 @@ const Riders: React.FC = () => {
         return () => {
             supabase.removeChannel(locationChannel);
             supabase.removeChannel(profilesChannel);
+            supabase.removeChannel(statsChannel);
             clearInterval(interval);
         }
     }, []);
 
     const fetchRiders = async () => {
+        const today = new Date().toISOString().split('T')[0];
+        
         const { data: profiles } = await supabase.from('profiles').select('*').eq('role', 'rider');
         const { data: locations } = await supabase.from('rider_locations').select('rider_id, last_updated');
+        const { data: stats } = await supabase.from('rider_daily_stats').select('rider_id, online_minutes').eq('date', today);
         
         if (profiles) setRiders(profiles);
         
@@ -73,12 +91,27 @@ const Riders: React.FC = () => {
             });
         }
         setRiderLastUpdates(updates);
+        
+        // Build stats map
+        const statsMap: Record<string, number> = {};
+        if (stats) {
+            stats.forEach((stat: any) => {
+               statsMap[stat.rider_id] = stat.online_minutes;
+            });
+        }
+        setRiderStats(statsMap);
     };
 
     const handleStoreUpdate = (lat: number, lng: number) => {
         const newLoc = { lat, lng };
         setStoreLocation(newLoc);
         localStorage.setItem('store_location', JSON.stringify(newLoc));
+    };
+    
+    const formatDuration = (minutes: number) => {
+        const h = Math.floor(minutes / 60);
+        const m = minutes % 60;
+        return `${h}h ${m}m`;
     };
 
     return (
@@ -113,6 +146,8 @@ const Riders: React.FC = () => {
 
                             {riders.map(rider => {
                                 const lastUpdate = riderLastUpdates[rider.id];
+                                const minutes = riderStats[rider.id] || 0;
+                                
                                 let isOnline = false;
                                 if (lastUpdate) {
                                     const diff = (currentTime - new Date(lastUpdate).getTime()) / 60000; // minutes
@@ -138,6 +173,11 @@ const Riders: React.FC = () => {
                                             <div style={{ fontSize: '0.8em', color: 'var(--text-dim)' }}>ID: {rider.id.split('-')[0]}...</div>
                                         </div>
                                     </div>
+                                    
+                                    <div style={{ marginTop: '8px', fontSize: '0.85em', color: 'var(--primary)', fontWeight: 'bold' }}>
+                                        Time Online: {formatDuration(minutes)}
+                                    </div>
+
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8em', marginTop: '5px' }}>
                                         <FaCircle color={isOnline ? "var(--primary)" : "grey"} size={10} /> 
                                         {isOnline ? "Online" : "Offline"}

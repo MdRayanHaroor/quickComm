@@ -1,7 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:url_launcher/url_launcher.dart'; // Ensure this dependency is added or use simple intent
+import 'package:url_launcher/url_launcher.dart'; 
 import '../services/supabase_service.dart';
 import '../services/location_service.dart';
 import 'login_screen.dart';
@@ -18,14 +19,74 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final LocationService _locationService = LocationService();
   String? _riderId;
   Map<String, dynamic>? _activeOrder;
+  
+  // Online Time Tracking
+  int _onlineMinutes = 0;
+  Timer? _onlineTimer;
 
   @override
   void initState() {
     super.initState();
     _riderId = SupabaseService.client.auth.currentUser?.id;
-    WakelockPlus.enable(); // Keep screen on for delivery
+    WakelockPlus.enable(); 
     _fetchActiveOrder();
     _subscribeToNewOrders();
+    _fetchTodayStats();
+  }
+  
+  String _getTodayDate() {
+    return DateTime.now().toIso8601String().split('T')[0];
+  }
+
+  Future<void> _fetchTodayStats() async {
+    if (_riderId == null) return;
+    try {
+      final data = await SupabaseService.client
+          .from('rider_daily_stats')
+          .select('online_minutes')
+          .eq('rider_id', _riderId!)
+          .eq('date', _getTodayDate())
+          .maybeSingle();
+      
+      if (mounted && data != null) {
+        setState(() {
+          _onlineMinutes = data['online_minutes'] as int;
+        });
+      }
+    } catch (e) {
+      print("Error fetching stats: $e");
+    }
+  }
+
+  Future<void> _updateDailyStats() async {
+    if (_riderId == null) return;
+    try {
+      await SupabaseService.client.from('rider_daily_stats').upsert({
+        'rider_id': _riderId,
+        'date': _getTodayDate(),
+        'online_minutes': _onlineMinutes,
+        'last_updated': DateTime.now().toUtc().toIso8601String()
+      }, onConflict: 'rider_id, date');
+    } catch (e) {
+      print("Error updating stats: $e");
+    }
+  }
+
+  void _startOnlineTimer() {
+    _stopOnlineTimer();
+    _onlineTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      if (mounted) {
+        setState(() {
+          _onlineMinutes++;
+        });
+        _updateDailyStats();
+      }
+    });
+  }
+
+  void _stopOnlineTimer() {
+    _onlineTimer?.cancel();
+    _onlineTimer = null;
   }
 
   Future<void> _fetchActiveOrder() async {
@@ -115,6 +176,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void dispose() {
     if (_isOnline) {
       _locationService.stopBroadcasting();
+      _stopOnlineTimer();
+      _updateDailyStats(); // Save on exit
     }
     WakelockPlus.disable();
     super.dispose();
@@ -125,16 +188,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     if (_isOnline) {
       _locationService.stopBroadcasting();
+      _stopOnlineTimer();
+      await _updateDailyStats(); // Save final state
       setState(() => _isOnline = false);
     } else {
       try {
         await _locationService.startBroadcasting(_riderId!);
+        _startOnlineTimer();
         setState(() => _isOnline = true);
       } catch (e) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
+  }
+  
+  String _formatDuration(int minutes) {
+    final hours = minutes ~/ 60;
+    final mins = minutes % 60;
+    return "${hours}h ${mins}m";
   }
 
   @override
@@ -231,6 +303,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
                ),
                const SizedBox(height: 10),
                Text(_isOnline ? "You are ONLINE" : "You are OFFLINE", style: Theme.of(context).textTheme.headlineMedium),
+               const SizedBox(height: 10),
+               // Online Time Display
+               Container(
+                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                 decoration: BoxDecoration(
+                   color: Colors.blue.shade50,
+                   borderRadius: BorderRadius.circular(20),
+                   border: Border.all(color: Colors.blue.shade200)
+                 ),
+                 child: Row(
+                   mainAxisSize: MainAxisSize.min,
+                   children: [
+                     const Icon(Icons.timer, size: 20, color: Colors.blue),
+                     const SizedBox(width: 8),
+                     Text(
+                       "Today's Online Time: ${_formatDuration(_onlineMinutes)}",
+                       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blue),
+                     ),
+                   ],
+                 ),
+               ),
+               
                const SizedBox(height: 20),
                ElevatedButton(
                  onPressed: _toggleOnline,

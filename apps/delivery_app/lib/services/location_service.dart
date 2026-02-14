@@ -33,7 +33,7 @@ class LocationService {
     if (const bool.fromEnvironment('dart.library.io') && (await Geolocator.checkPermission() != LocationPermission.denied)) {
          locationSettings = AndroidSettings(
             accuracy: LocationAccuracy.high,
-            distanceFilter: 10,
+            distanceFilter: 0,
             forceLocationManager: true,
             intervalDuration: const Duration(seconds: 10),
             // Foreground notification config
@@ -46,7 +46,7 @@ class LocationService {
     } else {
         locationSettings = const LocationSettings(
             accuracy: LocationAccuracy.high,
-            distanceFilter: 10,
+            distanceFilter: 0,
         );
     }
 
@@ -80,7 +80,7 @@ class LocationService {
         'lat': position.latitude,
         'lng': position.longitude,
         'last_updated': DateTime.now().toUtc().toIso8601String()
-      });
+      }, onConflict: 'rider_id');
     } catch (e) {
       print("❌ Error upserting location: $e");
     }
