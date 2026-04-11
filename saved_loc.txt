@@ -1,0 +1,2 @@
+test delivery loc - 
+lat - 13.0175514246088, long - 77.6363647090582

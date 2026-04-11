@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:http/http.dart' as http;
 import '../services/supabase_service.dart';
 
 class OrderTrackingScreen extends StatefulWidget {
@@ -27,7 +30,11 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
   bool _isStreamError = false;
 
   // Configurable boolean to show/hide path
-  bool _showPath = true; 
+  bool _showPath = true;
+
+  // Road-following route points from OSRM
+  List<LatLng> _routePoints = [];
+  bool _isFetchingRoute = false;
 
   @override
   void initState() {
@@ -216,6 +223,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
               // Controller might not be ready
             }
         });
+        // Fetch road-following route
+        _fetchRoute();
       }
     } catch (e) {
       print("❌ Error fetching initial location: $e");
@@ -258,6 +267,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
                         // Controller might not be ready
                       }
                  });
+                  // Re-fetch road route with updated rider position
+                  _fetchRoute();
             }
           },
         )
@@ -312,6 +323,89 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
     } catch (e) {
       return false;
     }
+  }
+
+  /// Fetches road-following route from OSRM between rider and delivery location
+  Future<void> _fetchRoute() async {
+    if (_isFetchingRoute) return;
+    if (_riderLocation == null || _order == null) return;
+
+    final riderLat = _riderLocation!['lat'];
+    final riderLng = _riderLocation!['lng'];
+    final orderLat = _order!['delivery_lat'];
+    final orderLng = _order!['delivery_lng'];
+
+    if (orderLat == null || orderLng == null) return;
+
+    _isFetchingRoute = true;
+
+    try {
+      // OSRM uses longitude,latitude order
+      final url = Uri.parse(
+        'https://router.project-osrm.org/route/v1/driving/'
+        '$riderLng,$riderLat;$orderLng,$orderLat'
+        '?overview=full&geometries=polyline'
+      );
+
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['routes'] != null && (data['routes'] as List).isNotEmpty) {
+          final encodedPolyline = data['routes'][0]['geometry'] as String;
+          final decoded = _decodePolyline(encodedPolyline);
+
+          if (mounted) {
+            setState(() {
+              _routePoints = decoded;
+            });
+          }
+        }
+      } else {
+        print('❌ OSRM API error: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ Error fetching route: $e');
+    } finally {
+      _isFetchingRoute = false;
+    }
+  }
+
+  /// Decodes an encoded polyline string into a list of LatLng points
+  /// Uses the standard Google Polyline Algorithm
+  List<LatLng> _decodePolyline(String encoded) {
+    final List<LatLng> points = [];
+    int index = 0;
+    int lat = 0;
+    int lng = 0;
+
+    while (index < encoded.length) {
+      int shift = 0;
+      int result = 0;
+      int byte;
+
+      // Decode latitude
+      do {
+        byte = encoded.codeUnitAt(index++) - 63;
+        result |= (byte & 0x1F) << shift;
+        shift += 5;
+      } while (byte >= 0x20);
+      lat += (result & 1) != 0 ? ~(result >> 1) : (result >> 1);
+
+      // Decode longitude
+      shift = 0;
+      result = 0;
+      do {
+        byte = encoded.codeUnitAt(index++) - 63;
+        result |= (byte & 0x1F) << shift;
+        shift += 5;
+      } while (byte >= 0x20);
+      lng += (result & 1) != 0 ? ~(result >> 1) : (result >> 1);
+
+      points.add(LatLng(lat / 1e5, lng / 1e5));
+    }
+
+    return points;
   }
 
   @override
@@ -415,16 +509,19 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
                                 ),
                                 
                                 // Path Layer
+                                // Road-following route polyline
                                 if (_showPath && isOnline && orderLat != null && orderLng != null)
                                     PolylineLayer(
                                         polylines: [
                                             Polyline(
-                                                points: [
-                                                    LatLng(riderLat, riderLng),
-                                                    LatLng(orderLat, orderLng),
-                                                ],
-                                                strokeWidth: 4.0,
-                                                color: Colors.blue.withOpacity(0.7),
+                                                points: _routePoints.isNotEmpty
+                                                    ? _routePoints
+                                                    : [
+                                                        LatLng(riderLat, riderLng),
+                                                        LatLng(orderLat, orderLng),
+                                                      ],
+                                                strokeWidth: 5.0,
+                                                color: Colors.blue,
                                             )
                                         ],
                                     ),
