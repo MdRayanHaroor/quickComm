@@ -54,7 +54,6 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen> with TickerProv
             const SizedBox(height: 10),
             Text('Order #${widget.orderId} has been confirmed.', style: const TextStyle(fontSize: 16, color: Colors.grey)),
             const SizedBox(height: 40),
-            
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 40),
               child: Column(
@@ -62,20 +61,26 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen> with TickerProv
                 children: [
                   ElevatedButton(
                     onPressed: () {
-                      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => OrderTrackingScreen(orderId: widget.orderId)));
-                    }, 
+                      // Replace stack with Home -> Tracking so back button goes to Home
+                      Navigator.pushAndRemoveUntil(
+                        context,
+                        MaterialPageRoute(builder: (_) => const HomeScreen()),
+                        (route) => false,
+                      );
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => OrderTrackingScreen(orderId: widget.orderId)));
+                    },
                     child: const Text('Track Order'),
                   ),
                   const SizedBox(height: 10),
                   TextButton(
                     onPressed: () {
-                       Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomeScreen()), (r) => false);
+                      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomeScreen()), (r) => false);
                     },
                     child: const Text('Back to Home'),
                   )
                 ],
               ),
-            )
+            ),
           ],
         ),
       ),

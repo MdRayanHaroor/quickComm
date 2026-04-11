@@ -96,6 +96,8 @@ const Dashboard: React.FC = () => {
                 .eq('id', orderId);
 
             if (error) throw error;
+            // Refetch orders after successful update to ensure UI updates immediately
+            await fetchOrders();
         } catch (error) {
             console.error("Error signing rider:", error);
             alert("Failed to assign rider");
@@ -110,6 +112,8 @@ const Dashboard: React.FC = () => {
                 .eq('id', orderId);
 
             if (error) throw error;
+            // Refetch orders after successful update to ensure UI updates immediately
+            await fetchOrders();
         } catch (error) {
             console.error("Error updating status:", error);
             alert("Failed to update status");

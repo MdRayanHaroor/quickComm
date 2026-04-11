@@ -14,24 +14,54 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingObserver {
   bool _isOnline = false;
   final LocationService _locationService = LocationService();
   String? _riderId;
   Map<String, dynamic>? _activeOrder;
+  RealtimeChannel? _ordersSubscription;
   
   // Online Time Tracking
   int _onlineMinutes = 0;
   Timer? _onlineTimer;
 
+  // Polling fallback — ensures rider never misses an order even if realtime drops
+  Timer? _pollTimer;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _riderId = SupabaseService.client.auth.currentUser?.id;
     WakelockPlus.enable(); 
     _fetchActiveOrder();
     _subscribeToNewOrders();
     _fetchTodayStats();
+    // Poll every 15 seconds as a fallback for realtime
+    _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      _fetchActiveOrder();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      // App returned from background — refresh data and reconnect realtime
+      print('📱 App resumed — refreshing dashboard');
+      _fetchActiveOrder();
+      _fetchTodayStats();
+      // Re-subscribe to ensure realtime channel is alive
+      _resubscribeToOrders();
+    }
+  }
+
+  void _resubscribeToOrders() {
+    if (_ordersSubscription != null) {
+      SupabaseService.client.removeChannel(_ordersSubscription!);
+      _ordersSubscription = null;
+    }
+    _subscribeToNewOrders();
   }
   
   String _getTodayDate() {
@@ -135,10 +165,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _subscribeToNewOrders() {
     if (_riderId == null) return;
-    SupabaseService.client
+    _ordersSubscription = SupabaseService.client
         .channel('public:orders:rider_id=eq.$_riderId')
         .onPostgresChanges(
-          event: PostgresChangeEvent.update,
+          event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'orders',
           filter: PostgresChangeFilter(
@@ -147,10 +177,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
             value: _riderId!
           ),
           callback: (payload) {
-             _fetchActiveOrder(); // Refresh on assignment
-          },
+             print('📦 Order realtime event: ${payload.eventType}');
+             _fetchActiveOrder(); // Refresh on any change
+           },
         )
-        .subscribe();
+        .subscribe((status, error) {
+          print('📡 Orders channel status: $status');
+          if (error != null) {
+            print('❌ Orders channel error: $error');
+          }
+        });
   }
 
   Future<void> _launchMaps(String? address, double? lat, double? lng) async {
@@ -174,10 +210,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _pollTimer?.cancel();
     if (_isOnline) {
       _locationService.stopBroadcasting();
       _stopOnlineTimer();
       _updateDailyStats(); // Save on exit
+    }
+    if (_ordersSubscription != null) {
+      SupabaseService.client.removeChannel(_ordersSubscription!);
     }
     WakelockPlus.disable();
     super.dispose();

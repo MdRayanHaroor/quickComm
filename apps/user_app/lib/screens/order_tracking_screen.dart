@@ -13,7 +13,7 @@ class OrderTrackingScreen extends StatefulWidget {
   State<OrderTrackingScreen> createState() => _OrderTrackingScreenState();
 }
 
-class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
+class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsBindingObserver {
   final MapController _mapController = MapController();
   Map<String, dynamic>? _order;
   List<dynamic>? _orderItems;
@@ -22,6 +22,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   
   // Subscription management
   RealtimeChannel? _riderLocationSubscription;
+  RealtimeChannel? _orderUpdatesSubscription;
   Timer? _retryTimer;
   bool _isStreamError = false;
 
@@ -31,19 +32,95 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _fetchOrderDetails();
     _subscribeToOrderUpdates();
   }
 
-@override
-void dispose() {
-  if (_riderLocationSubscription != null) {
-    SupabaseService.client.removeChannel(_riderLocationSubscription!);
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      // App returned from background — refresh everything
+      print('📱 App resumed — refreshing order tracking');
+      _refreshOnResume();
+    }
   }
-  _retryTimer?.cancel();
-  _mapController.dispose();
-  super.dispose();
-}
+
+  Future<void> _refreshOnResume() async {
+    // 1. Re-fetch latest order data from DB
+    try {
+      final response = await SupabaseService.client
+          .from('orders')
+          .select('*, profiles:rider_id(full_name, phone_number)')
+          .eq('id', widget.orderId)
+          .single();
+
+      if (!mounted) return;
+
+      setState(() {
+        _order = response;
+      });
+
+      // 2. Re-fetch latest rider location if rider is assigned
+      if (_order!['rider_id'] != null) {
+        try {
+          final locData = await SupabaseService.client
+              .from('rider_locations')
+              .select()
+              .eq('rider_id', _order!['rider_id'])
+              .maybeSingle();
+
+          if (locData != null && mounted) {
+            setState(() {
+              _riderLocation = locData;
+              _isStreamError = false;
+            });
+          }
+        } catch (e) {
+          print('❌ Error refreshing rider location: $e');
+        }
+      }
+
+      // 3. Reconnect realtime subscriptions
+      _reconnectAllSubscriptions();
+    } catch (e) {
+      print('❌ Error refreshing order on resume: $e');
+    }
+  }
+
+  void _reconnectAllSubscriptions() {
+    // Tear down existing subscriptions
+    if (_orderUpdatesSubscription != null) {
+      SupabaseService.client.removeChannel(_orderUpdatesSubscription!);
+      _orderUpdatesSubscription = null;
+    }
+    if (_riderLocationSubscription != null) {
+      SupabaseService.client.removeChannel(_riderLocationSubscription!);
+      _riderLocationSubscription = null;
+    }
+    _retryTimer?.cancel();
+
+    // Re-subscribe
+    _subscribeToOrderUpdates();
+    if (_order != null && _order!['rider_id'] != null) {
+      _subscribeToRiderLocation(_order!['rider_id']);
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    if (_riderLocationSubscription != null) {
+      SupabaseService.client.removeChannel(_riderLocationSubscription!);
+    }
+    if (_orderUpdatesSubscription != null) {
+      SupabaseService.client.removeChannel(_orderUpdatesSubscription!);
+    }
+    _retryTimer?.cancel();
+    _mapController.dispose();
+    super.dispose();
+  }
 
 
   Future<void> _fetchOrderDetails() async {
@@ -80,7 +157,7 @@ void dispose() {
   }
 
   void _subscribeToOrderUpdates() {
-    SupabaseService.client
+    _orderUpdatesSubscription = SupabaseService.client
         .channel('public:orders:id=eq.${widget.orderId}')
         .onPostgresChanges(
           event: PostgresChangeEvent.update,
@@ -248,7 +325,13 @@ void dispose() {
     
     
     return Scaffold(
-      appBar: AppBar(title: Text('Order #${widget.orderId}')),
+      appBar: AppBar(
+        title: Text('Order #${widget.orderId}'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ),
       body: Column(
         children: [
           // status stepper
