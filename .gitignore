@@ -1,0 +1,3 @@
+backend/.env
+apps/admin_panel/.env
+apps/supabase_env.json

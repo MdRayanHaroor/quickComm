@@ -15,3 +15,28 @@ adb connect [IP_ADDRESS]
 Run user and delivery apps - 
 flutter devices
 flutter run
+
+--------------------------------------------------
+Environment Variables & Configuration Setup:
+
+1. Admin Panel:
+   - Configured via `apps/admin_panel/.env`.
+   - Variables:
+     - `VITE_SUPABASE_URL`: Supabase project URL
+     - `VITE_SUPABASE_ANON_KEY`: Supabase client anonymous public key
+     - `VITE_API_BASE_URL`: FastAPI Backend endpoint (e.g. http://localhost:8000)
+   - To update API or Supabase credentials, edit `apps/admin_panel/.env`.
+
+2. Node.js Helper Scripts:
+   - When running scripts (`simulate_riders.js`, `create_rider_script.js`, `check_db.js`), run them with the `--env-file` flag to supply environment variables:
+     node --env-file=.env simulate_riders.js
+   - Alternatively, pass variables inline:
+     VITE_SUPABASE_URL=... VITE_SUPABASE_ANON_KEY=... node simulate_riders.js
+
+3. User App & Delivery App (Flutter):
+   - Configured using JSON environment configuration.
+   - A single unified environment file is created at:
+     - `apps/supabase_env.json`
+   - To build/run with these environment variables, run from the respective app's root directory:
+     flutter run --dart-define-from-file=../supabase_env.json
+   - To change credentials/URLs, update the values inside `apps/supabase_env.json`.

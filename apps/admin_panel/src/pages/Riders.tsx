@@ -4,6 +4,7 @@ import LiveMap from '../components/LiveMap';
 import StoreSettings from '../components/StoreSettings';
 import { supabase } from '../supabaseClient';
 import { FaMotorcycle, FaCircle } from 'react-icons/fa';
+import { motion } from 'framer-motion';
 
 interface Rider {
   id: string;
@@ -120,31 +121,38 @@ const Riders: React.FC = () => {
             <div className="content" style={{ padding: 0, display: 'flex' }}>
                 
                 {/* Rider List Sidebar */}
-                <div style={{ width: '300px', borderRight: '1px solid #374151', padding: '0', backgroundColor: 'var(--bg-card)', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ width: '350px', borderRight: '1px solid var(--border-color)', padding: '0', backgroundColor: 'var(--bg-surface)', display: 'flex', flexDirection: 'column', zIndex: 5 }}>
                     
                     {/* Store Settings Section */}
-                    <StoreSettings 
-                        onLocationSelect={handleStoreUpdate}
-                        currentLocation={storeLocation || null}
-                    />
+                    <div style={{ borderBottom: '1px solid var(--border-color)' }}>
+                      <StoreSettings 
+                          onLocationSelect={handleStoreUpdate}
+                          currentLocation={storeLocation || null}
+                      />
+                    </div>
 
-                    <div style={{ padding: '20px', flex: 1, overflowY: 'auto' }}>
-                        <h2 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <FaMotorcycle /> Fleet
+                    <div style={{ padding: '24px', flex: 1, overflowY: 'auto' }}>
+                        <h2 style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-primary)', fontSize: '1.5rem' }}>
+                            <FaMotorcycle color="var(--accent-primary)" /> Fleet
                         </h2>
-                        <div style={{ overflowY: 'auto' }}>
-                            <button 
-                                onClick={() => setSelectedRiderId(null)}
-                                style={{
-                                    width: '100%', padding: '10px', marginBottom: '10px', 
-                                    background: selectedRiderId === null ? 'var(--primary)' : 'transparent',
-                                    border: '1px solid #374151', color: 'white', cursor: 'pointer', borderRadius: '4px'
-                                }}
-                            >
-                                Show All Riders
-                            </button>
+                        
+                        <button 
+                            onClick={() => setSelectedRiderId(null)}
+                            style={{
+                                width: '100%', padding: '12px', marginBottom: '20px', 
+                                background: selectedRiderId === null ? 'var(--accent-primary)' : 'var(--bg-surface-elevated)',
+                                border: `1px solid ${selectedRiderId === null ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                                color: selectedRiderId === null ? '#0B0B0B' : 'var(--text-primary)', 
+                                cursor: 'pointer', borderRadius: '8px',
+                                fontWeight: 600,
+                                transition: 'all 0.3s ease'
+                            }}
+                        >
+                            Show All Riders
+                        </button>
 
-                            {riders.map(rider => {
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            {riders.map((rider, idx) => {
                                 const lastUpdate = riderLastUpdates[rider.id];
                                 const minutes = riderStats[rider.id] || 0;
                                 
@@ -155,35 +163,43 @@ const Riders: React.FC = () => {
                                 }
 
                                 return (
-                                <div 
+                                <motion.div 
+                                    initial={{ opacity: 0, x: -10 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    transition={{ delay: idx * 0.05 }}
                                     key={rider.id} 
                                     onClick={() => setSelectedRiderId(rider.id)}
                                     className="card" 
                                     style={{ 
-                                        marginBottom: '10px', padding: '15px', border: selectedRiderId === rider.id ? '2px solid var(--primary)' : '1px solid #374151',
-                                        cursor: 'pointer', opacity: isOnline ? 1 : 0.6
+                                        padding: '16px', 
+                                        border: selectedRiderId === rider.id ? '2px solid var(--accent-primary)' : '1px solid var(--border-color)',
+                                        cursor: 'pointer', 
+                                        opacity: isOnline ? 1 : 0.6,
+                                        boxShadow: selectedRiderId === rider.id ? '0 4px 12px rgba(212,175,55,0.15)' : 'none',
+                                        transition: 'all 0.2s ease',
+                                        marginBottom: 0
                                     }}
                                 >
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '5px' }}>
-                                        <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#374151', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                            <FaMotorcycle />
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                                        <div style={{ width: '45px', height: '45px', borderRadius: '50%', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-primary)' }}>
+                                            <FaMotorcycle size={20} />
                                         </div>
                                         <div>
-                                            <div style={{ fontWeight: 'bold' }}>{rider.full_name || 'Rider'}</div>
-                                            <div style={{ fontSize: '0.8em', color: 'var(--text-dim)' }}>ID: {rider.id.split('-')[0]}...</div>
+                                            <div style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{rider.full_name || 'Rider'}</div>
+                                            <div style={{ fontSize: '0.8em', color: 'var(--text-muted)' }}>ID: {rider.id.split('-')[0]}...</div>
                                         </div>
                                     </div>
                                     
-                                    <div style={{ marginTop: '8px', fontSize: '0.85em', color: 'var(--primary)', fontWeight: 'bold' }}>
+                                    <div style={{ marginTop: '12px', fontSize: '0.85em', color: 'var(--accent-primary)', fontWeight: '600' }}>
                                         Time Online: {formatDuration(minutes)}
                                     </div>
 
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8em', marginTop: '5px' }}>
-                                        <FaCircle color={isOnline ? "var(--primary)" : "grey"} size={10} /> 
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8em', marginTop: '6px', color: 'var(--text-primary)' }}>
+                                        <FaCircle color={isOnline ? "var(--success)" : "var(--text-muted)"} size={10} /> 
                                         {isOnline ? "Online" : "Offline"}
-                                        {lastUpdate && !isOnline && <span style={{color:'grey'}}> (Last seen: {new Date(lastUpdate).toLocaleTimeString()})</span>}
+                                        {lastUpdate && !isOnline && <span style={{color:'var(--text-muted)'}}> (Last seen: {new Date(lastUpdate).toLocaleTimeString()})</span>}
                                     </div>
-                                </div>
+                                </motion.div>
                             )})}
                         </div>
                     </div>
@@ -200,14 +216,16 @@ const Riders: React.FC = () => {
                         position: 'absolute', 
                         top: 20, 
                         right: 20, 
-                        background: 'rgba(0,0,0,0.8)', 
-                        padding: '10px 15px', 
-                        borderRadius: '8px',
+                        background: 'var(--bg-surface)', 
+                        padding: '12px 20px', 
+                        borderRadius: '12px',
                         zIndex: 1000,
-                        border: '1px solid #374151'
+                        border: '1px solid var(--border-color)',
+                        boxShadow: 'var(--shadow-md)',
+                        backdropFilter: 'blur(10px)'
                     }}>
-                        <h3 style={{ margin: 0, fontSize: '1em' }}>Live Tracking</h3>
-                        <p style={{ margin: '5px 0 0', fontSize: '0.8em', color: 'var(--text-dim)' }}>Real-time updates via Supabase</p>
+                        <h3 style={{ margin: 0, fontSize: '1.1em', color: 'var(--accent-primary)' }}>Live Tracking</h3>
+                        <p style={{ margin: '5px 0 0', fontSize: '0.85em', color: 'var(--text-muted)' }}>Real-time updates via Supabase</p>
                     </div>
                 </div>
 

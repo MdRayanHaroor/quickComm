@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import Sidebar from '../components/Sidebar';
 import { supabase } from '../supabaseClient';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 
 // Enhanced Interface to include nested items
 interface OrderItem {
@@ -134,7 +135,7 @@ const Dashboard: React.FC = () => {
     return (
         <div className="layout">
             <Sidebar />
-            <div className="content" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', color: 'white' }}>
+            <div className="content" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', color: 'var(--text-primary)' }}>
                 <h2>Loading live orders...</h2>
             </div>
         </div>
@@ -143,27 +144,39 @@ const Dashboard: React.FC = () => {
 
   const filteredOrders = getFilteredOrders();
 
+  const getStatusColor = (status: string) => {
+      switch (status) {
+          case 'delivered': return 'var(--success)';
+          case 'out_for_delivery': return 'var(--info)';
+          case 'confirmed': return 'var(--accent-secondary)';
+          case 'cancelled': return 'var(--danger)';
+          default: return 'var(--accent-primary)';
+      }
+  };
+
   return (
     <div className="layout">
       <Sidebar />
       <div className="content">
-        <h1 style={{ marginBottom: '20px' }}>Dashboard</h1>
+        <h1 style={{ marginBottom: '30px', color: 'var(--text-primary)', fontSize: '2rem' }}>Dashboard Overview</h1>
         
         {/* Status Tabs */}
-        <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', borderBottom: '1px solid #374151', paddingBottom: '10px' }}>
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '30px', borderBottom: '1px solid var(--border-color)', paddingBottom: '15px' }}>
             {['pending', 'preparing', 'on_road', 'past'].map((tab) => (
                 <button 
                     key={tab}
                     onClick={() => setActiveTab(tab as any)}
                     style={{
-                        background: activeTab === tab ? 'var(--primary)' : 'transparent',
-                        color: activeTab === tab ? 'white' : 'var(--text-dim)',
-                        border: activeTab === tab ? 'none' : '1px solid #374151',
-                        padding: '8px 16px',
-                        borderRadius: '20px',
+                        background: activeTab === tab ? 'var(--accent-primary)' : 'var(--bg-surface-elevated)',
+                        color: activeTab === tab ? '#0B0B0B' : 'var(--text-muted)',
+                        border: '1px solid var(--border-color)',
+                        padding: '10px 20px',
+                        borderRadius: '30px',
                         cursor: 'pointer',
                         textTransform: 'capitalize',
-                        fontWeight: 'bold'
+                        fontWeight: activeTab === tab ? '600' : '500',
+                        transition: 'all 0.3s ease',
+                        boxShadow: activeTab === tab ? '0 4px 10px rgba(212, 175, 55, 0.2)' : 'none'
                     }}
                 >
                     {tab.replace('_', ' ')}
@@ -174,41 +187,49 @@ const Dashboard: React.FC = () => {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px' }}>
           
           <div className="card">
-            <h2 style={{ borderBottom: '1px solid #374151', paddingBottom: '10px', marginBottom: '15px' }}>
+            <h2 style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '15px', marginBottom: '20px', color: 'var(--text-primary)' }}>
                 {activeTab === 'pending' ? 'New Orders' : 
                  activeTab === 'preparing' ? 'Kitchen (Preparing)' : 
                  activeTab === 'on_road' ? 'Out for Delivery' : 'Past Orders'} 
                 ({filteredOrders.length})
             </h2>
 
-            {filteredOrders.length === 0 ? <p style={{ color: 'var(--text-dim)' }}>No orders in this category.</p> : (
-                <div style={{ display: 'grid', gap: '15px' }}>
-                    {filteredOrders.map(order => (
-                        <div key={order.id} style={{ 
-                            background: 'rgba(255,255,255,0.05)', 
-                            padding: '20px', 
-                            borderRadius: '8px',
-                            borderLeft: `4px solid ${
-                                order.status === 'delivered' ? 'var(--primary)' : 
-                                order.status === 'out_for_delivery' ? '#3B82F6' :
-                                order.status === 'confirmed' ? '#F59E0B' : 'var(--danger)'}`,
-                        }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '15px' }}>
+            {filteredOrders.length === 0 ? <p style={{ color: 'var(--text-muted)' }}>No orders in this category.</p> : (
+                <div style={{ display: 'grid', gap: '20px' }}>
+                    {filteredOrders.map((order, idx) => (
+                        <motion.div 
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: idx * 0.05 }}
+                            key={order.id} 
+                            style={{ 
+                                background: 'var(--bg-surface-elevated)', 
+                                padding: '24px', 
+                                borderRadius: '12px',
+                                borderLeft: `4px solid ${getStatusColor(order.status)}`,
+                                border: '1px solid var(--border-color)',
+                                borderLeftWidth: '4px'
+                            }}
+                        >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
                                 <div>
-                                    <h3 style={{ margin: '0 0 5px 0', fontSize: '1.2em' }}>Order #{order.id}</h3>
-                                    <p style={{ margin: 0, color: 'var(--text-dim)', fontSize: '0.9em' }}>{new Date(order.created_at).toLocaleString()}</p>
-                                    <p style={{ margin: '5px 0 0 0', color: 'var(--text-dim)' }}>📍 {order.delivery_address}</p>
+                                    <h3 style={{ margin: '0 0 8px 0', fontSize: '1.2em', color: 'var(--text-primary)' }}>Order #{order.id}</h3>
+                                    <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9em' }}>{new Date(order.created_at).toLocaleString()}</p>
+                                    <p style={{ margin: '8px 0 0 0', color: 'var(--text-muted)', fontWeight: 500 }}>📍 {order.delivery_address}</p>
                                 </div>
                                 <div style={{ textAlign: 'right' }}>
-                                    <div style={{ fontSize: '1.2em', fontWeight: 'bold' }}>₹{order.total_amount}</div>
+                                    <div style={{ fontSize: '1.4em', fontWeight: 'bold', color: 'var(--accent-primary)' }}>₹{order.total_amount}</div>
                                     <span style={{ 
                                         display: 'inline-block',
-                                        marginTop: '5px',
+                                        marginTop: '8px',
                                         fontSize: '0.8em', 
-                                        padding: '4px 8px', 
-                                        borderRadius: '4px', 
-                                        background: '#374151',
-                                        textTransform: 'capitalize'
+                                        padding: '6px 12px', 
+                                        borderRadius: '20px', 
+                                        background: 'var(--bg-surface)',
+                                        color: getStatusColor(order.status),
+                                        border: `1px solid ${getStatusColor(order.status)}`,
+                                        textTransform: 'capitalize',
+                                        fontWeight: 'bold'
                                     }}>
                                         {order.status.replace('_', ' ')}
                                     </span>
@@ -216,29 +237,30 @@ const Dashboard: React.FC = () => {
                             </div>
                             
                             {/* Order Items Detail */}
-                            <div style={{ background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '6px', marginBottom: '15px' }}>
+                            <div style={{ background: 'var(--bg-surface)', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid var(--border-color)' }}>
                                 {order.order_items && order.order_items.length > 0 ? (
                                     order.order_items.map((item, idx) => (
-                                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9em', marginBottom: '5px' }}>
+                                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95em', marginBottom: '8px', color: 'var(--text-primary)' }}>
                                             <span>
-                                                <span style={{ color: 'var(--primary)', fontWeight: 'bold' }}>{item.quantity}x</span> {item.product?.name || 'Unknown Item'}
+                                                <span style={{ color: 'var(--accent-primary)', fontWeight: 'bold', marginRight: '5px' }}>{item.quantity}x</span> 
+                                                {item.product?.name || 'Unknown Item'}
                                             </span>
-                                            <span>₹{item.price}</span>
+                                            <span style={{ fontWeight: 500 }}>₹{item.price}</span>
                                         </div>
                                     ))
                                 ) : (
-                                    <div style={{ color: 'var(--text-dim)', fontSize: '0.8em' }}>No items details verified</div>
+                                    <div style={{ color: 'var(--text-muted)', fontSize: '0.8em' }}>No item details verified</div>
                                 )}
                             </div>
 
                             {/* Actions Area */}
-                            <div style={{ marginTop: '15px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '15px' }}>
+                            <div style={{ marginTop: '15px', borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
                                 
                                 {/* 1. Pending: Assign Rider */}
                                 {order.status === 'pending' && (
-                                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                    <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
                                         <select 
-                                            style={{ padding: '8px', borderRadius: '4px', background: '#1F2937', color: 'white', border: '1px solid #374151', flex: 1 }}
+                                            style={{ margin: 0, padding: '12px', borderRadius: '8px', background: 'var(--bg-surface)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', flex: 1 }}
                                             onChange={(e) => {
                                                 if (e.target.value) assignRider(order.id, e.target.value);
                                             }}
@@ -255,20 +277,13 @@ const Dashboard: React.FC = () => {
                                 {/* 2. Confirmed: Mark Out for Delivery */}
                                 {order.status === 'confirmed' && (
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <span style={{ color: '#F59E0B', fontStyle: 'italic', fontSize: '0.9em' }}>
+                                        <span style={{ color: 'var(--accent-secondary)', fontStyle: 'italic', fontSize: '0.95em' }}>
                                             Rider Assigned. Preparing...
                                         </span>
                                         <button 
+                                            className="btn btn-primary"
                                             onClick={() => updateStatus(order.id, 'out_for_delivery')}
-                                            style={{ 
-                                                padding: '8px 16px', 
-                                                background: '#3B82F6', 
-                                                color: 'white', 
-                                                border: 'none', 
-                                                borderRadius: '4px', 
-                                                cursor: 'pointer',
-                                                fontWeight: 'bold'
-                                            }}
+                                            style={{ background: 'var(--info)', color: 'white' }}
                                         >
                                             Mark Out for Delivery →
                                         </button>
@@ -278,20 +293,13 @@ const Dashboard: React.FC = () => {
                                 {/* 3. Out for Delivery: Mark Delivered */}
                                 {order.status === 'out_for_delivery' && (
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <span style={{ color: '#3B82F6', fontStyle: 'italic', fontSize: '0.9em' }}>
+                                        <span style={{ color: 'var(--info)', fontStyle: 'italic', fontSize: '0.95em' }}>
                                             Rider is on the way...
                                         </span>
                                         <button 
+                                            className="btn btn-primary"
                                             onClick={() => updateStatus(order.id, 'delivered')}
-                                            style={{ 
-                                                padding: '8px 16px', 
-                                                background: '#10B981', 
-                                                color: 'white', 
-                                                border: 'none', 
-                                                borderRadius: '4px', 
-                                                cursor: 'pointer',
-                                                fontWeight: 'bold'
-                                            }}
+                                            style={{ background: 'var(--success)', color: 'white' }}
                                         >
                                             Mark Delivered ✓
                                         </button>
@@ -299,12 +307,12 @@ const Dashboard: React.FC = () => {
                                 )}
                                 
                                 {order.status === 'delivered' && (
-                                    <div style={{ color: 'var(--text-dim)', fontSize: '0.9em', fontStyle: 'italic', textAlign: 'center' }}>
+                                    <div style={{ color: 'var(--success)', fontSize: '0.95em', fontStyle: 'italic', textAlign: 'center', fontWeight: 500 }}>
                                         Order Completed Successfully
                                     </div>
                                 )}
                             </div>
-                        </div>
+                        </motion.div>
                     ))}
                 </div>
             )}

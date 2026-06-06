@@ -1,8 +1,11 @@
 import axios from 'axios';
 
 const api = axios.create({
-    // baseURL: 'http://localhost:8000',
-    baseURL: 'https://quickcomm-production.up.railway.app',
+    baseURL: import.meta.env.VITE_API_BASE_URL,
 });
+
+if (!import.meta.env.VITE_API_BASE_URL) {
+    console.error('Missing VITE_API_BASE_URL environment variable');
+}
 
 export default api;
