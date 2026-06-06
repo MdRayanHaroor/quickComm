@@ -33,7 +33,7 @@ class LocationService {
     if (const bool.fromEnvironment('dart.library.io') && (await Geolocator.checkPermission() != LocationPermission.denied)) {
          locationSettings = AndroidSettings(
             accuracy: LocationAccuracy.high,
-            distanceFilter: 0,
+            distanceFilter: 10,
             forceLocationManager: true,
             intervalDuration: const Duration(seconds: 10),
             // Foreground notification config
@@ -46,14 +46,19 @@ class LocationService {
     } else {
         locationSettings = const LocationSettings(
             accuracy: LocationAccuracy.high,
-            distanceFilter: 0,
+            distanceFilter: 10,
         );
     }
 
     _positionStreamSubscription = Geolocator.getPositionStream(
       locationSettings: locationSettings,
     ).listen((Position position) {
-      print("📍 Location Update: ${position.latitude}, ${position.longitude}");
+      // Skip inaccurate GPS readings (e.g. indoors, urban canyons)
+      if (position.accuracy > 50) {
+        print("⚠️ Skipping inaccurate GPS reading (accuracy: ${position.accuracy.toStringAsFixed(1)}m)");
+        return;
+      }
+      print("📍 Location Update: ${position.latitude}, ${position.longitude} (accuracy: ${position.accuracy.toStringAsFixed(1)}m)");
       _updateLocation(riderId, position);
     }, onError: (e) {
       print("❌ Location Stream Error: $e");
