@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import Sidebar from '../components/Sidebar';
-import { supabase } from '../supabaseClient';
 import { FaMotorcycle, FaPlus, FaTrash, FaTimes, FaEdit, FaUsersCog } from 'react-icons/fa';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../api';

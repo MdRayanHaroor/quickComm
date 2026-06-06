@@ -97,8 +97,7 @@ const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, onStoreLocationUpdate,
     const [viewCenter, setViewCenter] = useState<[number, number]>(() => {
         if (storeLocation) return [storeLocation.lat, storeLocation.lng];
         return [17.3850, 78.4867];
-    }); 
-    const [hasLocated, setHasLocated] = useState(false);
+    });
 
     // Focus offects
     useEffect(() => {
