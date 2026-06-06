@@ -1,7 +1,6 @@
-import { Link, useLocation } from 'react-router-dom';
-import { FaChartPie, FaUtensils, FaMotorcycle, FaSignOutAlt } from 'react-icons/fa';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { FaChartPie, FaUtensils, FaMotorcycle, FaSignOutAlt, FaCalendarAlt, FaClipboardList, FaUsersCog, FaMapMarkedAlt } from 'react-icons/fa';
 import { supabase } from '../supabaseClient';
-import { useNavigate } from 'react-router-dom';
 import ThemeToggle from './ThemeToggle';
 
 const Sidebar = () => {
@@ -29,13 +28,26 @@ const Sidebar = () => {
         <Link to="/dashboard" className={`nav-item ${isActive('/dashboard')}`}>
           <FaChartPie /> Dashboard
         </Link>
+
+        <Link to="/riders" className={`nav-item ${isActive('/riders')}`}>
+          <FaMapMarkedAlt /> Fleet &amp; Map
+        </Link>
         
         <Link to="/menu" className={`nav-item ${isActive('/menu')}`}>
           <FaUtensils /> Menu Management
         </Link> 
 
-        <Link to="/riders" className={`nav-item ${isActive('/riders')}`}>
-          <FaMotorcycle /> Fleet & Map
+        <Link to="/fleet-management" className={`nav-item ${isActive('/fleet-management')}`}>
+          <FaUsersCog /> Fleet Management
+        </Link>
+
+
+        <Link to="/rider-attendance" className={`nav-item ${isActive('/rider-attendance')}`}>
+          <FaCalendarAlt /> Rider Attendance
+        </Link>
+
+        <Link to="/delivery-history" className={`nav-item ${isActive('/delivery-history')}`}>
+          <FaClipboardList /> Delivery History
         </Link>
       </div>
 

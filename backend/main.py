@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import supabase
 from routers import orders, riders, products
 
+
 app = FastAPI(title="QuickComm Delivery System API")
 
 # CORS

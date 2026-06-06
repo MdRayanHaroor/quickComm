@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import { supabase } from '../supabaseClient';
 import 'leaflet/dist/leaflet.css';
 import RiderMarker from './RiderMarker';
@@ -17,6 +17,16 @@ const MapController: React.FC<{ center: [number, number], zoom?: number }> = ({ 
             map.flyTo(center, zoom || map.getZoom());
         }
     }, [center, map]);
+    return null;
+};
+
+// 1.5. Component to handle map clicks
+const MapEvents: React.FC<{ onClick?: () => void }> = ({ onClick }) => {
+    useMapEvents({
+        click() {
+            if (onClick) onClick();
+        }
+    });
     return null;
 };
 
@@ -79,30 +89,16 @@ interface LiveMapProps {
     storeLocation?: { lat: number, lng: number };
     onStoreLocationUpdate?: (lat: number, lng: number) => void;
     selectedRiderId?: string | null;
+    onMapClick?: () => void;
 }
 
-const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, onStoreLocationUpdate, selectedRiderId }) => {
+const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, onStoreLocationUpdate, selectedRiderId, onMapClick }) => {
     const [riders, setRiders] = useState<Record<string, RiderState>>({});
-    const [viewCenter, setViewCenter] = useState<[number, number]>([17.3850, 78.4867]); 
+    const [viewCenter, setViewCenter] = useState<[number, number]>(() => {
+        if (storeLocation) return [storeLocation.lat, storeLocation.lng];
+        return [17.3850, 78.4867];
+    }); 
     const [hasLocated, setHasLocated] = useState(false);
-    // const mapRef = useRef<any>(null);
-
-    // Initial Geolocation
-    useEffect(() => {
-        if (!hasLocated) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    setViewCenter([position.coords.latitude, position.coords.longitude]);
-                    setHasLocated(true);
-                },
-                (_error) => {
-                    if (storeLocation) {
-                        setViewCenter([storeLocation.lat, storeLocation.lng]);
-                    }
-                }
-            );
-        }
-    }, [hasLocated]);
 
     // Focus offects
     useEffect(() => {
@@ -121,12 +117,9 @@ const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, onStoreLocationUpdate,
 
 
     const handleResetLocation = () => {
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                setViewCenter([position.coords.latitude, position.coords.longitude]);
-            },
-            (_error) => alert("Could not fetch device location.")
-        );
+        if (storeLocation) {
+            setViewCenter([storeLocation.lat, storeLocation.lng]);
+        }
     };
 
     useEffect(() => {
@@ -180,10 +173,8 @@ const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, onStoreLocationUpdate,
         };
     }, []);
 
-    // Filter displayed riders
-    const displayedRiders = selectedRiderId 
-        ? (riders[selectedRiderId] ? [riders[selectedRiderId]] : []) 
-        : Object.values(riders);
+    // Filter displayed riders - ALWAYS show all riders
+    const displayedRiders = Object.values(riders);
 
     return (
         <MapContainer 
@@ -193,6 +184,7 @@ const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, onStoreLocationUpdate,
             attributionControl={false}
         >
             <MapController center={viewCenter} />
+            <MapEvents onClick={onMapClick} />
             
             <TileLayer
                 url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
@@ -244,7 +236,7 @@ const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, onStoreLocationUpdate,
                     }}
                 >
                     <svg stroke="currentColor" fill="none" strokeWidth="2" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>
-                    Locate Me
+                    Locate Store
                 </button>
             </div>
         </MapContainer>

@@ -6,6 +6,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../services/supabase_service.dart';
 import '../services/location_service.dart';
 import 'login_screen.dart';
+import 'profile_screen.dart';
+import 'delivery_history_screen.dart';
+import 'attendance_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -28,12 +31,18 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   // Polling fallback — ensures rider never misses an order even if realtime drops
   Timer? _pollTimer;
 
+  // Rider profile
+  Map<String, dynamic>? _profile;
+  bool _mustChangePassword = false;
+  bool _passwordDialogShown = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _riderId = SupabaseService.client.auth.currentUser?.id;
     WakelockPlus.enable(); 
+    _fetchProfile();
     _fetchActiveOrder();
     _subscribeToNewOrders();
     _fetchTodayStats();
@@ -47,11 +56,9 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
-      // App returned from background — refresh data and reconnect realtime
       print('📱 App resumed — refreshing dashboard');
       _fetchActiveOrder();
       _fetchTodayStats();
-      // Re-subscribe to ensure realtime channel is alive
       _resubscribeToOrders();
     }
   }
@@ -63,7 +70,141 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     }
     _subscribeToNewOrders();
   }
-  
+
+  Future<void> _fetchProfile() async {
+    if (_riderId == null) return;
+    try {
+      final data = await SupabaseService.client
+          .from('profiles')
+          .select('full_name, phone_number, must_change_password')
+          .eq('id', _riderId!)
+          .single();
+      if (mounted) {
+        setState(() {
+          _profile = data;
+          _mustChangePassword = data['must_change_password'] == true;
+        });
+        // Show the blocking password-change dialog after first frame
+        if (_mustChangePassword && !_passwordDialogShown) {
+          _passwordDialogShown = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _showChangePasswordDialog();
+          });
+        }
+      }
+    } catch (e) {
+      print('Error fetching profile: $e');
+    }
+  }
+
+  void _showChangePasswordDialog() {
+    final newPwdCtrl = TextEditingController();
+    final confirmPwdCtrl = TextEditingController();
+    bool isLoading = false;
+    String? errorText;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false, // Cannot dismiss without changing password
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Icon(Icons.lock_reset, color: Colors.orange.shade600),
+              const SizedBox(width: 10),
+              const Text('Change Default Password'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Text(
+                  'Your account uses a default password set by the admin. Please set a new password before continuing.',
+                  style: TextStyle(color: Colors.orange.shade800, fontSize: 13),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: newPwdCtrl,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: 'New Password',
+                  prefixIcon: const Icon(Icons.lock_outline),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  errorText: errorText,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: confirmPwdCtrl,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: 'Confirm Password',
+                  prefixIcon: const Icon(Icons.lock),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: isLoading
+                    ? null
+                    : () async {
+                        final newPwd = newPwdCtrl.text.trim();
+                        final confirmPwd = confirmPwdCtrl.text.trim();
+
+                        if (newPwd.length < 8) {
+                          setDialogState(() => errorText = 'Minimum 8 characters');
+                          return;
+                        }
+                        if (newPwd != confirmPwd) {
+                          setDialogState(() => errorText = 'Passwords do not match');
+                          return;
+                        }
+
+                        setDialogState(() { isLoading = true; errorText = null; });
+
+                        try {
+                          await SupabaseService.client.auth.updateUser(UserAttributes(password: newPwd));
+                          await SupabaseService.client.from('profiles').update({'must_change_password': false}).eq('id', _riderId!);
+                          if (mounted) {
+                            setState(() => _mustChangePassword = false);
+                            Navigator.of(ctx).pop();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Password updated successfully! 🎉'), backgroundColor: Colors.green),
+                            );
+                          }
+                        } catch (e) {
+                          setDialogState(() { isLoading = false; errorText = 'Error: $e'; });
+                        }
+                      },
+                child: isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text('Set New Password', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String _getTodayDate() {
     return DateTime.now().toIso8601String().split('T')[0];
   }
@@ -136,7 +277,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
           _activeOrder = response;
         });
         
-        // Update Location Service with active order
         if (_activeOrder != null) {
             _locationService.setActiveOrder(_activeOrder!['id']);
         } else {
@@ -156,7 +296,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
               .update({'status': 'delivered'})
               .eq('id', _activeOrder!['id']);
           
-          _fetchActiveOrder(); // Refresh
+          _fetchActiveOrder();
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Order Delivered!')));
       } catch(e) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -178,7 +318,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
           ),
           callback: (payload) {
              print('📦 Order realtime event: ${payload.eventType}');
-             _fetchActiveOrder(); // Refresh on any change
+             _fetchActiveOrder();
            },
         )
         .subscribe((status, error) {
@@ -215,7 +355,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     if (_isOnline) {
       _locationService.stopBroadcasting();
       _stopOnlineTimer();
-      _updateDailyStats(); // Save on exit
+      _updateDailyStats();
     }
     if (_ordersSubscription != null) {
       SupabaseService.client.removeChannel(_ordersSubscription!);
@@ -230,7 +370,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     if (_isOnline) {
       _locationService.stopBroadcasting();
       _stopOnlineTimer();
-      await _updateDailyStats(); // Save final state
+      await _updateDailyStats();
       setState(() => _isOnline = false);
     } else {
       try {
@@ -250,6 +390,135 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     return "${hours}h ${mins}m";
   }
 
+  Future<void> _logout() async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Logout Confirmation'),
+        content: Text(_isOnline 
+          ? 'If you logout, your status will change to offline. Are you sure you want to logout?' 
+          : 'Are you sure you want to logout?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    if (_isOnline) _toggleOnline();
+    await SupabaseService.client.auth.signOut();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+      (route) => false
+    );
+  }
+
+  Widget _buildDrawer() {
+    return Drawer(
+      child: SafeArea(
+        child: Column(
+          children: [
+            // Header
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              color: Colors.orange.shade600,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  CircleAvatar(
+                    radius: 28,
+                    backgroundColor: Colors.white24,
+                    child: const Icon(Icons.person, color: Colors.white, size: 28),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    _profile?['full_name'] ?? 'Rider',
+                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    SupabaseService.client.auth.currentUser?.email ?? '',
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                  if (_mustChangePassword)
+                    GestureDetector(
+                      onTap: _showChangePasswordDialog,
+                      child: Container(
+                        margin: const EdgeInsets.only(top: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade400,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text('⚠️ Change default password', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+
+            // Navigation Items
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.home_outlined),
+                    title: const Text('Dashboard'),
+                    onTap: () => Navigator.pop(context),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.history),
+                    title: const Text('Delivery History'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const DeliveryHistoryScreen()));
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.calendar_today_outlined),
+                    title: const Text('Attendance'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const AttendanceScreen()));
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.person_outline),
+                    title: const Text('Profile & Password'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
+                    },
+                  ),
+                ],
+              ),
+            ),
+
+            // Logout at bottom
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.logout, color: Colors.red),
+              title: const Text('Logout', style: TextStyle(color: Colors.red)),
+              onTap: _logout,
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -260,20 +529,9 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
             icon: const Icon(Icons.refresh),
             onPressed: _fetchActiveOrder,
           ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              if (_isOnline) _toggleOnline();
-              await SupabaseService.client.auth.signOut();
-              if (!mounted) return;
-              Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (context) => LoginScreen()),
-                (route) => false
-              );
-            },
-          )
         ],
       ),
+      drawer: _buildDrawer(),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(20.0),

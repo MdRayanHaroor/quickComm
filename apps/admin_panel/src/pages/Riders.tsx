@@ -9,6 +9,8 @@ import { motion } from 'framer-motion';
 interface Rider {
   id: string;
   full_name: string;
+  phone_number?: string;
+  must_change_password?: boolean;
 }
 
 const Riders: React.FC = () => {
@@ -18,14 +20,12 @@ const Riders: React.FC = () => {
     const [selectedRiderId, setSelectedRiderId] = useState<string | null>(null);
     const [riderStats, setRiderStats] = useState<Record<string, number>>({});
     
-    // Store Location State (persisted in local storage for now)
-    const [storeLocation, setStoreLocation] = useState<{lat: number, lng: number} | undefined>(() => {
-        const saved = localStorage.getItem('store_location');
-        return saved ? JSON.parse(saved) : undefined;
-    });
+    // Store Location State (persisted in Supabase)
+    const [storeLocation, setStoreLocation] = useState<{lat: number, lng: number} | undefined>(undefined);
 
     useEffect(() => {
         fetchRiders();
+        fetchStoreLocation();
         
         // 1. Subscribe to LOCATION updates
         const locationChannel = supabase
@@ -103,10 +103,18 @@ const Riders: React.FC = () => {
         setRiderStats(statsMap);
     };
 
-    const handleStoreUpdate = (lat: number, lng: number) => {
+    const fetchStoreLocation = async () => {
+        const { data, error } = await supabase.from('store_settings').select('lat, lng').eq('id', 1).single();
+        if (data && !error) {
+            setStoreLocation({ lat: data.lat, lng: data.lng });
+        }
+    };
+
+    const handleStoreUpdate = async (lat: number, lng: number) => {
         const newLoc = { lat, lng };
         setStoreLocation(newLoc);
-        localStorage.setItem('store_location', JSON.stringify(newLoc));
+        // Upsert the location into Supabase
+        await supabase.from('store_settings').upsert({ id: 1, lat, lng, updated_at: new Date().toISOString() });
     };
     
     const formatDuration = (minutes: number) => {
@@ -132,9 +140,11 @@ const Riders: React.FC = () => {
                     </div>
 
                     <div style={{ padding: '24px', flex: 1, overflowY: 'auto' }}>
-                        <h2 style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-primary)', fontSize: '1.5rem' }}>
-                            <FaMotorcycle color="var(--accent-primary)" /> Fleet
-                        </h2>
+                        <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-primary)', fontSize: '1.3rem', margin: 0 }}>
+                                <FaMotorcycle color="var(--accent-primary)" /> Fleet
+                            </h2>
+                        </div>
                         
                         <button 
                             onClick={() => setSelectedRiderId(null)}
@@ -159,7 +169,7 @@ const Riders: React.FC = () => {
                                 let isOnline = false;
                                 if (lastUpdate) {
                                     const diff = (currentTime - new Date(lastUpdate).getTime()) / 60000; // minutes
-                                    isOnline = diff < 10;
+                                    isOnline = diff < 2;
                                 }
 
                                 return (
@@ -181,12 +191,15 @@ const Riders: React.FC = () => {
                                     }}
                                 >
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-                                        <div style={{ width: '45px', height: '45px', borderRadius: '50%', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-primary)' }}>
+                                        <div style={{ width: '45px', height: '45px', borderRadius: '50%', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-primary)', flexShrink: 0 }}>
                                             <FaMotorcycle size={20} />
                                         </div>
-                                        <div>
-                                            <div style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{rider.full_name || 'Rider'}</div>
-                                            <div style={{ fontSize: '0.8em', color: 'var(--text-muted)' }}>ID: {rider.id.split('-')[0]}...</div>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontWeight: '600', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                {rider.full_name || 'Rider'}
+                                                {rider.must_change_password && <span style={{ fontSize: '0.7em', background: 'var(--warning, #f59e0b)', color: '#000', borderRadius: '4px', padding: '1px 5px', fontWeight: 700 }}>Default Pwd</span>}
+                                            </div>
+                                            <div style={{ fontSize: '0.8em', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rider.phone_number || `ID: ${rider.id.split('-')[0]}...`}</div>
                                         </div>
                                     </div>
                                     
@@ -200,18 +213,32 @@ const Riders: React.FC = () => {
                                         {lastUpdate && !isOnline && <span style={{color:'var(--text-muted)'}}> (Last seen: {new Date(lastUpdate).toLocaleTimeString()})</span>}
                                     </div>
                                 </motion.div>
-                            )})}
+                                )})}
                         </div>
                     </div>
                 </div>
 
                 {/* Map Area */}
                 <div style={{ flex: 1, position: 'relative' }}>
-                    <LiveMap 
-                        storeLocation={storeLocation}
-                        onStoreLocationUpdate={handleStoreUpdate}
-                        selectedRiderId={selectedRiderId} // Pass selection
-                    />
+                    {storeLocation ? (
+                        <LiveMap 
+                            storeLocation={storeLocation}
+                            onStoreLocationUpdate={handleStoreUpdate}
+                            selectedRiderId={selectedRiderId} // Pass selection
+                            onMapClick={() => setSelectedRiderId(null)} // Deselect rider on map click
+                        />
+                    ) : (
+                        <div style={{ 
+                            display: 'flex', 
+                            height: '100%', 
+                            alignItems: 'center', 
+                            justifyContent: 'center', 
+                            color: 'var(--text-muted)',
+                            background: 'var(--bg-surface)' 
+                        }}>
+                            Loading map...
+                        </div>
+                    )}
                     <div style={{ 
                         position: 'absolute', 
                         top: 20, 
