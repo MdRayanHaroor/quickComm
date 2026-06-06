@@ -36,6 +36,22 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
   List<LatLng> _routePoints = [];
   bool _isFetchingRoute = false;
 
+  // ETA from OSRM
+  int? _etaSeconds;
+  double? _distanceMeters;
+
+  // OSRM debounce — max 1 call per 30 seconds
+  DateTime? _lastRouteFetchTime;
+  static const _routeFetchInterval = Duration(seconds: 30);
+
+  // Smooth marker animation
+  LatLng? _animatedRiderPosition;
+  LatLng? _animationStartPos;
+  LatLng? _animationEndPos;
+  Timer? _animationTimer;
+  static const _animationDuration = Duration(milliseconds: 3000);
+  static const _animationFrameInterval = Duration(milliseconds: 16); // ~60fps
+
   @override
   void initState() {
     super.initState();
@@ -125,10 +141,10 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
       SupabaseService.client.removeChannel(_orderUpdatesSubscription!);
     }
     _retryTimer?.cancel();
+    _animationTimer?.cancel();
     _mapController.dispose();
     super.dispose();
   }
-
 
   Future<void> _fetchOrderDetails() async {
     try {
@@ -192,7 +208,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
   Future<void> _subscribeToRiderLocation(String riderId) async {
     // Cancel existing subscription if any
     if (_riderLocationSubscription != null) {
-      await _riderLocationSubscription!.unsubscribe();
+      SupabaseService.client.removeChannel(_riderLocationSubscription!);
       _riderLocationSubscription = null;
     }
 
@@ -206,23 +222,24 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
           .from('rider_locations')
           .select()
           .eq('rider_id', riderId)
-          .maybeSingle(); // Use maybeSingle to avoid error if no location yet
+          .maybeSingle();
 
       if (initialData != null && mounted) {
         print("📍 Initial Rider Location: ${initialData['lat']}, ${initialData['lng']}");
         setState(() {
           _riderLocation = initialData;
+          _animatedRiderPosition = LatLng(initialData['lat'], initialData['lng']);
           _isStreamError = false;
-           // Optional: Smoothly animate camera to new location
-            try {
-              _mapController.move(
-                  LatLng(_riderLocation!['lat'], _riderLocation!['lng']), 
-                  _mapController.camera.zoom
-              );
-            } catch (e) {
-              // Controller might not be ready
-            }
         });
+        // Move camera to initial position
+        try {
+          _mapController.move(
+              LatLng(_riderLocation!['lat'], _riderLocation!['lng']), 
+              _mapController.camera.zoom
+          );
+        } catch (e) {
+          // Controller might not be ready
+        }
         // Fetch road-following route
         _fetchRoute();
       }
@@ -233,11 +250,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
     // 2. Realtime Subscription
     try {
       _riderLocationSubscription =
-    SupabaseService.client.channel('rider_location_$riderId');
-
-      
-      _riderLocationSubscription!.onPostgresChanges(
-          event: PostgresChangeEvent.all, // Listen to all events (INSERT/UPDATE)
+        SupabaseService.client.channel('rider_location_$riderId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'rider_locations',
           filter: PostgresChangeFilter(
@@ -254,50 +269,39 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
                  print("📍 New Location (Realtime): ${newRecord['lat']}, ${newRecord['lng']}");
                  setState(() {
                     _riderLocation = newRecord;
-                     print("📍 Marker Updated: ${_riderLocation!['lat']}, ${_riderLocation!['lng']}");
                     _isStreamError = false;
-
-                     // Optional: Smoothly animate camera to new location
-                      try {
-                        _mapController.move(
-                            LatLng(_riderLocation!['lat'], _riderLocation!['lng']), 
-                            _mapController.camera.zoom
-                        );
-                      } catch (e) {
-                        // Controller might not be ready
-                      }
                  });
-                  // Re-fetch road route with updated rider position
-                  _fetchRoute();
+                 // Start smooth animation to new position
+                 _startMarkerAnimation(
+                   LatLng(newRecord['lat'], newRecord['lng'])
+                 );
+                 // Smoothly move camera
+                 try {
+                   _mapController.move(
+                       LatLng(newRecord['lat'], newRecord['lng']), 
+                       _mapController.camera.zoom
+                   );
+                 } catch (e) {
+                   // Controller might not be ready
+                 }
+                 // Re-fetch road route (debounced)
+                 _fetchRoute();
             }
           },
         )
         .subscribe((status, error) {
-  print("Realtime status: $status");
+          print("Realtime status: $status");
 
-  if (status == RealtimeSubscribeStatus.closed) {
-    print("Channel closed. Resubscribing...");
-    _scheduleRetry(riderId);
-  }
+          if (status == RealtimeSubscribeStatus.closed) {
+            print("Channel closed. Resubscribing...");
+            _scheduleRetry(riderId);
+          }
 
-  if (error != null) {
-    print("Realtime error: $error");
-    _scheduleRetry(riderId);
-  }
-});
-
-        
-        // Store channel reference if needed to unsubscribe later? 
-        // For Supabase generic channels, we usually just unsubscribe the client channel by name or let it clean up?
-        // Actually, the Supabase Flutter SDK handles channel cleanup via .unsubscribe(). 
-        // We can't store 'channel' in 'StreamSubscription' variable. 
-        // We need to change the type of _riderLocationSubscription or just store the channel.
-        
-        // NOTE: The previous code used StreamSubscription. We should probably add a RealtimeChannel variable.
-        // But to keep changes minimal and since we are using a specific variable name `_riderLocationSubscription`,
-        // let's change the class variable type or manage it differently.
-        // Wait, `channel.subscribe()` returns `RealtimeChannel`.
-        // I will need to update the `_riderLocationSubscription` type in the class or add a new variable `_riderChannel`.
+          if (error != null) {
+            print("Realtime error: $error");
+            _scheduleRetry(riderId);
+          }
+        });
         
     } catch (e) {
         print("❌ Error initializing channel: $e");
@@ -319,16 +323,57 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
     try {
       final lastUpdated = DateTime.parse(lastUpdatedStr);
       final diff = DateTime.now().difference(lastUpdated);
-      return diff.inMinutes < 5;
+      return diff.inMinutes < 2; // Unified: 2 min threshold across all apps
     } catch (e) {
       return false;
     }
   }
 
-  /// Fetches road-following route from OSRM between rider and delivery location
+  /// Smoothly animate the rider marker from current to target position
+  void _startMarkerAnimation(LatLng target) {
+    _animationTimer?.cancel();
+    
+    _animationStartPos = _animatedRiderPosition ?? target;
+    _animationEndPos = target;
+    
+    final startTime = DateTime.now();
+    
+    _animationTimer = Timer.periodic(_animationFrameInterval, (timer) {
+      final elapsed = DateTime.now().difference(startTime);
+      final progress = (elapsed.inMilliseconds / _animationDuration.inMilliseconds).clamp(0.0, 1.0);
+      
+      // Cubic ease-out for natural deceleration
+      final eased = 1.0 - pow(1.0 - progress, 3).toDouble();
+      
+      final newLat = _animationStartPos!.latitude + 
+          (_animationEndPos!.latitude - _animationStartPos!.latitude) * eased;
+      final newLng = _animationStartPos!.longitude + 
+          (_animationEndPos!.longitude - _animationStartPos!.longitude) * eased;
+      
+      if (mounted) {
+        setState(() {
+          _animatedRiderPosition = LatLng(newLat, newLng);
+        });
+      }
+      
+      if (progress >= 1.0) {
+        timer.cancel();
+      }
+    });
+  }
+
+  /// Fetches road-following route from OSRM between rider and delivery location.
+  /// Debounced to max 1 call per 30 seconds to avoid rate limiting.
   Future<void> _fetchRoute() async {
     if (_isFetchingRoute) return;
     if (_riderLocation == null || _order == null) return;
+
+    // Debounce: skip if last fetch was < 30 seconds ago
+    final now = DateTime.now();
+    if (_lastRouteFetchTime != null && 
+        now.difference(_lastRouteFetchTime!) < _routeFetchInterval) {
+      return;
+    }
 
     final riderLat = _riderLocation!['lat'];
     final riderLng = _riderLocation!['lng'];
@@ -338,6 +383,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
     if (orderLat == null || orderLng == null) return;
 
     _isFetchingRoute = true;
+    _lastRouteFetchTime = now;
 
     try {
       // OSRM uses longitude,latitude order
@@ -352,12 +398,19 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data['routes'] != null && (data['routes'] as List).isNotEmpty) {
-          final encodedPolyline = data['routes'][0]['geometry'] as String;
+          final route = data['routes'][0];
+          final encodedPolyline = route['geometry'] as String;
           final decoded = _decodePolyline(encodedPolyline);
+
+          // Extract ETA and distance
+          final duration = route['duration']; // seconds
+          final distance = route['distance']; // meters
 
           if (mounted) {
             setState(() {
               _routePoints = decoded;
+              _etaSeconds = (duration is num) ? duration.toInt() : null;
+              _distanceMeters = (distance is num) ? distance.toDouble() : null;
             });
           }
         }
@@ -413,10 +466,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
     if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
     final status = _order!['status'];
-    // Refined Logic (Map Mode): If status implies rider activity AND rider is assigned, we show Map View (or Map Loader)
-    // This prevents layout shift.
     final shouldShowMap = (status == 'out_for_delivery');
-    
     
     return Scaffold(
       appBar: AppBar(
@@ -428,7 +478,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
       ),
       body: Column(
         children: [
-          // status stepper
+          // Status stepper
           if (status != 'delivered')
           Container(
             padding: const EdgeInsets.all(20),
@@ -456,22 +506,53 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
                 ),
             ),
 
+          // ETA Banner
+          if (shouldShowMap && _etaSeconds != null && _riderLocation != null)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).primaryColor,
+                boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2))],
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.access_time, color: Colors.white, size: 20),
+                  const SizedBox(width: 10),
+                  Text(
+                    _etaSeconds! < 60 
+                        ? 'Arriving in less than a minute'
+                        : 'Arriving in ~${(_etaSeconds! / 60).ceil()} min',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                  ),
+                  const Spacer(),
+                  if (_distanceMeters != null)
+                    Text(
+                      _distanceMeters! >= 1000
+                          ? '${(_distanceMeters! / 1000).toStringAsFixed(1)} km'
+                          : '${_distanceMeters!.toInt()} m',
+                      style: const TextStyle(color: Colors.white70, fontSize: 13),
+                    ),
+                ],
+              ),
+            ),
+
           if (status == 'delivered')
              Expanded(
                child: Center(
                  child: Column(
-                   mainAxisAlignment: MainAxisAlignment.center,
-                   children: [
-                     const Icon(Icons.check_circle, color: Colors.green, size: 80),
-                     const SizedBox(height: 20),
-                     const Text("Order Delivered!", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                     const SizedBox(height: 10),
-                     Text("Time Taken: ${_calculateTimeTaken()}", style: const TextStyle(fontSize: 16, color: Colors.grey)),
-                     const SizedBox(height: 30),
-                     const Text("Thank you for ordering with us.", style: TextStyle(fontSize: 16)),
-                   ],
-                 ),
-               )
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.check_circle, color: Colors.green, size: 80),
+                      const SizedBox(height: 20),
+                      const Text("Order Delivered!", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 10),
+                      Text("Time Taken: ${_calculateTimeTaken()}", style: const TextStyle(fontSize: 16, color: Colors.grey)),
+                      const SizedBox(height: 30),
+                      const Text("Thank you for ordering with us.", style: TextStyle(fontSize: 16)),
+                    ],
+                  ),
+                )
              )
           else if (shouldShowMap)
             Expanded(
@@ -508,7 +589,6 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
                                     userAgentPackageName: 'com.quickcomm.user_app',
                                 ),
                                 
-                                // Path Layer
                                 // Road-following route polyline
                                 if (_showPath && isOnline && orderLat != null && orderLng != null)
                                     PolylineLayer(
@@ -526,12 +606,12 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
                                         ],
                                     ),
 
-                                // Rider Marker Layer
-                                if (isOnline)
+                                // Rider Marker Layer (uses animated position for smooth movement)
+                                if (isOnline && _animatedRiderPosition != null)
                                 MarkerLayer(
                                     markers: [
                                         Marker(
-                                            point: LatLng(riderLat, riderLng),
+                                            point: _animatedRiderPosition!,
                                             width: 60,
                                             height: 60,
                                             child: Column(

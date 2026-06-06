@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import '../providers/cart_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/supabase_service.dart';
-import 'tracking_screen.dart';
 import 'checkout_screen.dart';
 import 'login_screen.dart';
 

@@ -53,6 +53,9 @@ create table if not exists public.rider_locations (
   order_id bigint references public.orders(id), -- Nullable, tracks active order
   lat float not null,
   lng float not null,
+  speed float default 0, -- m/s from device GPS
+  heading float default 0, -- degrees (0-360) from device compass
+  accuracy float default 0, -- horizontal accuracy in meters
   last_updated timestamp with time zone default timezone('utc'::text, now()) not null
 );
 

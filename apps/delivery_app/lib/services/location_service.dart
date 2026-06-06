@@ -78,12 +78,15 @@ class LocationService {
 
   Future<void> _updateLocation(String riderId, Position position) async {
     try {
-      // Upsert location
+      // Upsert location with enriched GPS data
       await SupabaseService.client.from('rider_locations').upsert({
         'rider_id': riderId,
         'order_id': _activeOrderId,
         'lat': position.latitude,
         'lng': position.longitude,
+        'speed': position.speed >= 0 ? position.speed : 0, // m/s, -1 means unavailable
+        'heading': position.heading >= 0 ? position.heading : 0, // degrees 0-360
+        'accuracy': position.accuracy,
         'last_updated': DateTime.now().toUtc().toIso8601String()
       }, onConflict: 'rider_id');
     } catch (e) {
