@@ -52,11 +52,15 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
   static const _animationDuration = Duration(milliseconds: 3000);
   static const _animationFrameInterval = Duration(milliseconds: 16); // ~60fps
 
+  // Store location (for showing pickup point on map)
+  LatLng? _storeLocation;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _fetchOrderDetails();
+    _fetchStoreLocation();
     _subscribeToOrderUpdates();
   }
 
@@ -176,6 +180,23 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error fetching order: $e")));
       }
+    }
+  }
+
+  Future<void> _fetchStoreLocation() async {
+    try {
+      final data = await SupabaseService.client
+          .from('store_settings')
+          .select('lat, lng')
+          .eq('id', 1)
+          .maybeSingle();
+      if (data != null && mounted) {
+        setState(() {
+          _storeLocation = LatLng(data['lat'], data['lng']);
+        });
+      }
+    } catch (e) {
+      print('❌ Error fetching store location: $e');
     }
   }
 
@@ -604,6 +625,37 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
                                                 color: Colors.blue,
                                             )
                                         ],
+                                    ),
+
+                                // Store Marker (pickup point)
+                                if (_storeLocation != null)
+                                    MarkerLayer(
+                                        markers: [
+                                            Marker(
+                                                point: _storeLocation!,
+                                                width: 50,
+                                                height: 50,
+                                                child: Column(
+                                                  children: [
+                                                    Container(
+                                                      padding: const EdgeInsets.all(4),
+                                                      decoration: BoxDecoration(
+                                                        color: Colors.pink.shade50,
+                                                        shape: BoxShape.circle,
+                                                        boxShadow: [const BoxShadow(blurRadius: 5, color: Colors.black26)],
+                                                        border: Border.all(color: Colors.pink, width: 2),
+                                                      ),
+                                                      child: const Icon(Icons.store, color: Colors.pink, size: 22),
+                                                    ),
+                                                    Container(
+                                                      color: Colors.white,
+                                                      padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+                                                      child: const Text("Store", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold)),
+                                                    )
+                                                  ],
+                                                ),
+                                            )
+                                        ]
                                     ),
 
                                 // Rider Marker Layer (uses animated position for smooth movement)

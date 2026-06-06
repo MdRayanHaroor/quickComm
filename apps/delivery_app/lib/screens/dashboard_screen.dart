@@ -46,6 +46,8 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     _fetchActiveOrder();
     _subscribeToNewOrders();
     _fetchTodayStats();
+    // Geofence event handler — auto-notify on proximity to store or delivery
+    _locationService.onGeofenceEvent = _handleGeofenceEvent;
     // Poll every 15 seconds as a fallback for realtime
     _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       _fetchActiveOrder();
@@ -278,13 +280,42 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         });
         
         if (_activeOrder != null) {
-            _locationService.setActiveOrder(_activeOrder!['id']);
+            _locationService.setActiveOrder(
+              _activeOrder!['id'],
+              deliveryLat: _activeOrder!['delivery_lat']?.toDouble(),
+              deliveryLng: _activeOrder!['delivery_lng']?.toDouble(),
+            );
         } else {
             _locationService.setActiveOrder(null);
         }
       }
     } catch (e) {
       print("Error fetching active order: $e");
+    }
+  }
+
+  void _handleGeofenceEvent(String event, int orderId) {
+    if (!mounted) return;
+    
+    switch (event) {
+      case 'near_store':
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('📍 You are near the store! Ready for pickup.'),
+            duration: Duration(seconds: 5),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        break;
+      case 'near_delivery':
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('📍 You are near the delivery address!'),
+            duration: Duration(seconds: 5),
+            backgroundColor: Colors.green,
+          ),
+        );
+        break;
     }
   }
 
