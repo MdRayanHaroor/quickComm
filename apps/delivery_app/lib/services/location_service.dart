@@ -10,27 +10,21 @@ class LocationService {
 
   // ─── Kalman Filter State ─────────────────────────────────────
   // Simple 1D Kalman filter applied independently to lat and lng.
-  // Reduces GPS measurement noise by weighting device accuracy vs
-  // estimated position uncertainty (same technique used by Uber/Google Maps).
+  // Higher Q = faster response to real movement, less smoothing.
+  // Lower Q = more smoothing, slower to converge on destination.
+  // Q=0.008 is tuned for delivery riding (5–40 km/h, updates every 3s).
 
   double? _kfLat;
   double? _kfLng;
-  double _kfP = 1.0; // Covariance (uncertainty estimate) — starts high
-  static const double _kfQ = 0.0001; // Process noise: how much we expect position to change per update
+  double _kfP = 1.0;
+  static const double _kfQ = 0.008; // Raised from 0.0001 for faster convergence
 
-  // ─── Stationary Jitter Suppression ──────────────────────────
-  // When the rider is stopped at a signal, GPS still reports ±3–6m random
-  // drift. We suppress updates where speed < 1 m/s AND distance moved < 3m.
-  // This eliminates visible marker wiggle when the rider is stationary.
-  // Technique used by Uber, Google Maps, and most production navigation apps.
-
+  // ─── Speed Validation (teleport guard only) ──────────────────
+  // Rejects GPS jumps that imply physically impossible speed.
+  // NOTE: Stationary jitter gate removed — GPS-reported speed is unreliable
+  // at low velocities on Android and was incorrectly suppressing real movement.
   double? _lastSentLat;
   double? _lastSentLng;
-  static const double _stationarySpeedThreshold = 1.0; // m/s (~3.6 km/h)
-  static const double _stationaryDistanceThreshold = 3.0; // meters
-
-  // ─── Speed Validation ────────────────────────────────────────
-  // Reject GPS teleports (extreme jumps caused by satellite switching).
   DateTime? _lastPositionTime;
   static const double _maxReasonableSpeed = 60.0; // m/s (~216 km/h)
 
@@ -70,13 +64,11 @@ class LocationService {
 
     if (Platform.isAndroid) {
       locationSettings = AndroidSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5,
-        // NOTE: forceLocationManager is intentionally NOT set here.
-        // Omitting it enables Google Fused Location Provider (FLP),
-        // which fuses GPS + WiFi + cell towers + accelerometer for
-        // dramatically better accuracy (~5–10m vs raw GPS ~20–50m).
-        intervalDuration: const Duration(seconds: 5),
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 0,   // Send every fix — accuracy over bandwidth
+        // forceLocationManager intentionally omitted → enables Google FLP
+        // (fuses GPS + WiFi + cell + accelerometer for ~5–10m accuracy)
+        intervalDuration: const Duration(seconds: 3), // Update every 3s
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationTitle: "Rider App",
           notificationText: "Broadcasting location...",
@@ -85,8 +77,8 @@ class LocationService {
       );
     } else {
       locationSettings = const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5,
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 0,
       );
     }
 
@@ -100,16 +92,17 @@ class LocationService {
   }
 
   /// Full processing pipeline for each GPS position update.
-  /// Order: Accuracy Filter → Teleport Guard → Stationary Gate → Kalman Filter → Upsert
+  /// Order: Accuracy Filter → Teleport Guard → Kalman Filter (or raw bypass) → Upsert
   void _processPosition(String riderId, Position position) {
     // ── Step 1: Accuracy Filter ──────────────────────────────────
     // Skip readings with poor horizontal accuracy (indoors, urban canyons).
+    // 30m threshold — tighter than before for better quality input.
     if (position.accuracy > 30) {
       print("⚠️ Skipping inaccurate GPS (accuracy: ${position.accuracy.toStringAsFixed(1)}m > 30m)");
       return;
     }
 
-    // ── Step 2: Teleport / Speed Validation ─────────────────────
+    // ── Step 2: Teleport Guard ───────────────────────────────────
     // Reject GPS jumps that imply physically impossible speed.
     final now = DateTime.now();
     if (_lastSentLat != null && _lastPositionTime != null) {
@@ -127,61 +120,44 @@ class LocationService {
       }
     }
 
-    // ── Step 3: Stationary Jitter Suppression ───────────────────
-    // When stopped at a signal, GPS still drifts ±3–6m.
-    // Suppress these micro-movements to prevent marker wiggle.
-    if (_lastSentLat != null && _lastSentLng != null) {
-      final distFromLast = _haversineDistance(
-        _lastSentLat!, _lastSentLng!,
-        position.latitude, position.longitude,
-      );
-      final speed = position.speed >= 0 ? position.speed : 0.0;
-
-      if (speed < _stationarySpeedThreshold && distFromLast < _stationaryDistanceThreshold) {
-        print("🚦 Stationary jitter suppressed (speed: ${speed.toStringAsFixed(2)} m/s, drift: ${distFromLast.toStringAsFixed(2)}m)");
-        return;
-      }
-    }
-
-    // ── Step 4: Kalman Filter ────────────────────────────────────
-    // Smooths GPS measurement noise using a simple 1D filter on lat/lng.
-    // R = measurement noise variance, derived from GPS accuracy.
-    // K = Kalman gain (how much to trust new measurement vs prediction).
-    final r = position.accuracy * position.accuracy; // measurement noise variance
+    // ── Step 3: Kalman Filter (with high-accuracy bypass) ────────
+    // If GPS accuracy is very good (< 10m), trust the raw reading directly.
+    // This ensures the marker snaps precisely to destination when the rider
+    // arrives, instead of the filter lagging 30–50m behind.
     double filteredLat;
     double filteredLng;
 
-    if (_kfLat == null || _kfLng == null) {
-      // First reading — initialize filter state with raw GPS
-      _kfLat = position.latitude;
-      _kfLng = position.longitude;
-      _kfP = r; // Initialize covariance to measurement noise
+    if (position.accuracy < 10.0) {
+      // High-confidence reading — skip filter, use raw GPS directly.
+      // Resets Kalman state so next lower-quality reading doesn't drag back.
       filteredLat = position.latitude;
       filteredLng = position.longitude;
+      _kfLat = position.latitude;
+      _kfLng = position.longitude;
+      _kfP = position.accuracy * position.accuracy;
+      print("📍 High-accuracy bypass (${position.accuracy.toStringAsFixed(1)}m): using raw GPS directly");
     } else {
-      // Predict step: covariance grows with process noise
-      _kfP = _kfP + _kfQ;
+      final r = position.accuracy * position.accuracy; // measurement noise variance
 
-      // Update step: compute Kalman gain
-      final k = _kfP / (_kfP + r);
-
-      // Update estimate with new measurement
-      _kfLat = _kfLat! + k * (position.latitude - _kfLat!);
-      _kfLng = _kfLng! + k * (position.longitude - _kfLng!);
-
-      // Update covariance
-      _kfP = (1.0 - k) * _kfP;
-
-      filteredLat = _kfLat!;
-      filteredLng = _kfLng!;
+      if (_kfLat == null || _kfLng == null) {
+        _kfLat = position.latitude;
+        _kfLng = position.longitude;
+        _kfP = r;
+        filteredLat = position.latitude;
+        filteredLng = position.longitude;
+      } else {
+        _kfP = _kfP + _kfQ;                      // Predict: covariance grows
+        final k = _kfP / (_kfP + r);             // Kalman gain
+        _kfLat = _kfLat! + k * (position.latitude  - _kfLat!);  // Update lat
+        _kfLng = _kfLng! + k * (position.longitude - _kfLng!);  // Update lng
+        _kfP   = (1.0 - k) * _kfP;               // Update covariance
+        filteredLat = _kfLat!;
+        filteredLng = _kfLng!;
+      }
+      print("📍 Kalman filtered (${position.accuracy.toStringAsFixed(1)}m): "
+            "raw=(${position.latitude.toStringAsFixed(6)},${position.longitude.toStringAsFixed(6)}) "
+            "→ filtered=(${filteredLat.toStringAsFixed(6)},${filteredLng.toStringAsFixed(6)})");
     }
-
-    print(
-      "📍 Raw: (${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}) "
-      "→ Filtered: (${filteredLat.toStringAsFixed(6)}, ${filteredLng.toStringAsFixed(6)}) "
-      "accuracy: ${position.accuracy.toStringAsFixed(1)}m "
-      "speed: ${(position.speed >= 0 ? position.speed : 0).toStringAsFixed(1)} m/s"
-    );
 
     // Track what we last sent (for stationary gate + teleport guard)
     _lastSentLat = filteredLat;

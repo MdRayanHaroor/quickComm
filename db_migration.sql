@@ -25,9 +25,16 @@ create policy "Customers can update their own profile" on customers for update u
 drop policy if exists "Users can insert their own orders" on orders;
 create policy "Users can insert their own orders" on orders for insert with check (auth.uid() = user_id);
 
--- Ensure users can see their own orders (likely already exists, but good to ensure)
+-- Ensure users can see their own orders, and admins/riders can see all orders
 drop policy if exists "Users can see own orders" on orders;
-create policy "Users can see own orders" on orders for select using (auth.uid() = user_id);
+create policy "Users can see own orders" on orders for select using (
+  auth.uid() = user_id or
+  exists (
+    select 1 from public.profiles 
+    where profiles.id = auth.uid() 
+    and profiles.role in ('admin', 'rider')
+  )
+);
 
 -- CRITICAL: Allow Admin/Backend to UPDATE orders (Assign Rider, Change Status)
 drop policy if exists "Enable update for all users" on orders;
@@ -47,8 +54,17 @@ create policy "Users can insert own order items" on order_items
 drop policy if exists "Users can view own order items" on order_items;
 create policy "Users can view own order items" on order_items
   for select using (
-    order_id in (select id from orders where user_id = auth.uid())
+    order_id in (
+      select id from orders 
+      where user_id = auth.uid() or
+      exists (
+        select 1 from public.profiles 
+        where profiles.id = auth.uid() 
+        and profiles.role in ('admin', 'rider')
+      )
+    )
   );
+
 
 -- 6. RESET RIDER LOCATIONS TABLE (CRITICAL FIX FOR DUPLICATES)
 -- Drop table to remove bad duplicate data

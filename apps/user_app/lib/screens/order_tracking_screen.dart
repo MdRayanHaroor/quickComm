@@ -40,9 +40,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
   int? _etaSeconds;
   double? _distanceMeters;
 
-  // OSRM debounce — max 1 call per 5 seconds
-  DateTime? _lastRouteFetchTime;
-  static const _routeFetchInterval = Duration(seconds: 5);
+  // OSRM route fetching — no debounce (accuracy over bandwidth)
+  // A new route is fetched on every location event to always show the
+  // freshest road-following path.
 
   // Rider GPS accuracy (meters) — used for accuracy circle display
   double? _riderAccuracy;
@@ -328,10 +328,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
                 // Controller might not be ready
               }
 
-              // Off-route check: if rider has deviated significantly, bypass debounce
-              // and re-fetch route immediately.
-              final isOffRoute = _isOffRoute(snappedPos);
-              _fetchRoute(bypassDebounce: isOffRoute);
+              // Fetch fresh road-following route on every location event.
+              // No debounce — accuracy is the priority.
+              _fetchRoute();
             }
           },
         )
@@ -450,24 +449,6 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
     return raw; // Fallback: use raw GPS if snap fails
   }
 
-  /// Off-route detection: checks whether the rider's current position has deviated
-  /// more than 40m from any point on the existing route polyline.
-  ///
-  /// If true, the route re-fetch will bypass the 5s debounce and fetch immediately,
-  /// so the displayed route updates as soon as the rider takes a different road.
-  bool _isOffRoute(LatLng riderPos) {
-    if (_routePoints.isEmpty) return false;
-    const offRouteThresholdMeters = 40.0;
-
-    for (final point in _routePoints) {
-      final dist = _haversineDistance(
-        riderPos.latitude, riderPos.longitude,
-        point.latitude, point.longitude,
-      );
-      if (dist <= offRouteThresholdMeters) return false; // within threshold of some route point
-    }
-    return true; // rider is >40m from all route points → off-route
-  }
 
   double _haversineDistance(double lat1, double lng1, double lat2, double lng2) {
     const earthRadius = 6371000.0;
@@ -482,52 +463,34 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
 
   double _toRadians(double degrees) => degrees * pi / 180;
 
-  /// Fetches a road-following route from OSRM between rider and delivery location.
+  /// Fetches a road-following route from OSRM between the rider and delivery location.
   ///
-  /// Improvements over the previous version:
-  /// - Debounce reduced 30s → 5s for faster route updates.
-  /// - `bypassDebounce: true` used when off-route detection fires.
-  /// - Rider heading passed via OSRM `bearings` parameter so the route is
-  ///   calculated in the direction the rider is facing (prevents U-turn artifacts
-  ///   and wrong-way routing on one-way roads).
-  /// - Geometry switched to GeoJSON for higher fidelity on curves.
-  Future<void> _fetchRoute({bool bypassDebounce = false}) async {
+  /// Called on every location event (no debounce) so the polyline is always fresh.
+  /// Uses GeoJSON geometry for higher-fidelity road curves.
+  ///
+  /// NOTE: The bearings parameter (rider heading) has been intentionally removed.
+  /// When OSRM cannot satisfy a bearing constraint it returns NoRoute, which
+  /// causes the fallback straight line to render. Road-following accuracy without
+  /// bearings is sufficient for delivery tracking.
+  Future<void> _fetchRoute() async {
     if (_isFetchingRoute) return;
     if (_riderLocation == null || _order == null) return;
-
-    final now = DateTime.now();
-    if (!bypassDebounce &&
-        _lastRouteFetchTime != null &&
-        now.difference(_lastRouteFetchTime!) < _routeFetchInterval) {
-      return;
-    }
 
     final riderLat = _riderLocation!['lat'];
     final riderLng = _riderLocation!['lng'];
     final orderLat = _order!['delivery_lat'];
     final orderLng = _order!['delivery_lng'];
-    final headingRaw = _riderLocation!['heading'];
 
     if (orderLat == null || orderLng == null) return;
 
     _isFetchingRoute = true;
-    _lastRouteFetchTime = now;
 
     try {
-      // Include rider heading (bearings param) so OSRM routes forward, not backward.
-      // Format: bearings=<angle>,<deviation>; — the semicolon+comma means no bearing
-      // constraint on the destination waypoint.
-      String bearingsParam = '';
-      if (headingRaw != null) {
-        final heading = (headingRaw as num).toInt();
-        bearingsParam = '&bearings=$heading,45;,';
-      }
-
-      // OSRM uses longitude,latitude order; geometries=geojson for higher fidelity
+      // OSRM uses longitude,latitude order; GeoJSON for higher-fidelity geometry on curves.
       final url = Uri.parse(
         'https://router.project-osrm.org/route/v1/driving/'
         '$riderLng,$riderLat;$orderLng,$orderLat'
-        '?overview=full&geometries=geojson$bearingsParam'
+        '?overview=full&geometries=geojson'
       );
 
       final response = await http.get(url);
@@ -691,17 +654,15 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
                                       userAgentPackageName: 'com.quickcomm.user_app',
                                   ),
 
-                                  // Road-following route polyline
-                                  if (_showPath && isOnline && orderLat != null && orderLng != null)
+                                  // Road-following route polyline.
+                                  // Only shown once OSRM route data has loaded (_routePoints not empty).
+                                  // Before the route is ready the layer is invisible — no straight-line
+                                  // flicker across buildings while the first HTTP call is in flight.
+                                  if (_showPath && isOnline && orderLat != null && orderLng != null && _routePoints.isNotEmpty)
                                       PolylineLayer(
                                           polylines: [
                                               Polyline(
-                                                  points: _routePoints.isNotEmpty
-                                                      ? _routePoints
-                                                      : [
-                                                          LatLng(riderLat, riderLng),
-                                                          LatLng(orderLat, orderLng),
-                                                        ],
+                                                  points: _routePoints,
                                                   strokeWidth: 5.0,
                                                   color: Colors.blue,
                                               )

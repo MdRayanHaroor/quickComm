@@ -35,10 +35,9 @@ class _OrderSuccessScreenState extends State<OrderSuccessScreen> with TickerProv
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Lottie Animation (Load from network for simplicity, or asset if added)
-            // Using a reliable network URL for a checkmark
-            Lottie.network(
-              'https://assets2.lottiefiles.com/packages/lf20_t24tpvcu.json', // Official Lottie Checkmark
+            // Lottie animation loaded from local asset (no network dependency, instant load)
+            Lottie.asset(
+              'assets/order_success_lottie.json',
               controller: _controller,
               onLoaded: (composition) {
                 _controller

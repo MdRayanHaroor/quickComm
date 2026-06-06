@@ -131,6 +131,17 @@ const Dashboard: React.FC = () => {
         });
     };
 
+    const getTabCount = (tab: 'pending' | 'preparing' | 'on_road' | 'past') => {
+        return orders.filter(order => {
+            if (tab === 'pending') return order.status === 'pending';
+            if (tab === 'preparing') return order.status === 'confirmed';
+            if (tab === 'on_road') return order.status === 'out_for_delivery';
+            if (tab === 'past') return ['delivered', 'cancelled'].includes(order.status);
+            return false;
+        }).length;
+    };
+
+
   if (loading) {
     return (
         <div className="layout">
@@ -162,26 +173,45 @@ const Dashboard: React.FC = () => {
         
         {/* Status Tabs */}
         <div style={{ display: 'flex', gap: '12px', marginBottom: '30px', borderBottom: '1px solid var(--border-color)', paddingBottom: '15px' }}>
-            {['pending', 'preparing', 'on_road', 'past'].map((tab) => (
-                <button 
-                    key={tab}
-                    onClick={() => setActiveTab(tab as any)}
-                    style={{
-                        background: activeTab === tab ? 'var(--accent-primary)' : 'var(--bg-surface-elevated)',
-                        color: activeTab === tab ? '#0B0B0B' : 'var(--text-muted)',
-                        border: '1px solid var(--border-color)',
-                        padding: '10px 20px',
-                        borderRadius: '30px',
-                        cursor: 'pointer',
-                        textTransform: 'capitalize',
-                        fontWeight: activeTab === tab ? '600' : '500',
-                        transition: 'all 0.3s ease',
-                        boxShadow: activeTab === tab ? '0 4px 10px rgba(212, 175, 55, 0.2)' : 'none'
-                    }}
-                >
-                    {tab.replace('_', ' ')}
-                </button>
-            ))}
+            {['pending', 'preparing', 'on_road', 'past'].map((tab) => {
+                const isActive = activeTab === tab;
+                const count = getTabCount(tab as any);
+                return (
+                    <button 
+                        key={tab}
+                        onClick={() => setActiveTab(tab as any)}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            background: isActive ? 'var(--accent-primary)' : 'var(--bg-surface-elevated)',
+                            color: isActive ? '#0B0B0B' : 'var(--text-muted)',
+                            border: '1px solid var(--border-color)',
+                            padding: '8px 16px',
+                            borderRadius: '30px',
+                            cursor: 'pointer',
+                            textTransform: 'capitalize',
+                            fontWeight: isActive ? '600' : '500',
+                            transition: 'all 0.3s ease',
+                            boxShadow: isActive ? '0 4px 10px rgba(212, 175, 55, 0.2)' : 'none'
+                        }}
+                    >
+                        <span>{tab.replace('_', ' ')}</span>
+                        <span style={{
+                            background: isActive ? 'rgba(0, 0, 0, 0.15)' : 'var(--bg-surface)',
+                            color: isActive ? '#0B0B0B' : 'var(--text-primary)',
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                            fontSize: '0.85em',
+                            fontWeight: 'bold',
+                            minWidth: '20px',
+                            textAlign: 'center'
+                        }}>
+                            {count}
+                        </span>
+                    </button>
+                );
+            })}
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px' }}>
