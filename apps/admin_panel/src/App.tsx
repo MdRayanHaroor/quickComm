@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Menu from './pages/Menu';
@@ -21,6 +21,8 @@ function App() {
           <Route path="/fleet-management" element={<ProtectedRoute><FleetManagement /></ProtectedRoute>} />
           <Route path="/rider-attendance" element={<ProtectedRoute><RiderAttendance /></ProtectedRoute>} />
           <Route path="/delivery-history" element={<ProtectedRoute><DeliveryHistory /></ProtectedRoute>} />
+          {/* Catch-all: redirect any unknown path to login */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Router>
     </ThemeProvider>
