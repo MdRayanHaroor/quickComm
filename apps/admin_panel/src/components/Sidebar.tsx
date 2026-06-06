@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { FaChartPie, FaUtensils, FaMotorcycle, FaSignOutAlt, FaCalendarAlt, FaClipboardList, FaUsersCog, FaMapMarkedAlt } from 'react-icons/fa';
+import { FaChartPie, FaUtensils, FaSignOutAlt, FaCalendarAlt, FaClipboardList, FaUsersCog, FaMapMarkedAlt } from 'react-icons/fa';
 import { supabase } from '../supabaseClient';
 import ThemeToggle from './ThemeToggle';
 
