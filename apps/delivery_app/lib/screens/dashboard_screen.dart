@@ -324,7 +324,12 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
       try {
           await SupabaseService.client
               .from('orders')
-              .update({'status': 'delivered'})
+              .update({
+                'status': 'delivered',
+                // Capture exact delivery timestamp for accurate "Time Taken" in user_app.
+                // Requires the delivered_at column from migration: add_delivered_at_to_orders.sql
+                'delivered_at': DateTime.now().toUtc().toIso8601String(),
+              })
               .eq('id', _activeOrder!['id']);
           
           _fetchActiveOrder();
