@@ -24,6 +24,7 @@ class ProductUpdate(BaseModel):
     image_url: Optional[str] = None
     is_available: Optional[bool] = None
 
+@router.get("", response_model=List[Product])
 @router.get("/", response_model=List[Product])
 def get_products():
     try:
@@ -34,8 +35,10 @@ def get_products():
         # If it's a validation error, printing response.data might help (if available)
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("", response_model=Product)
 @router.post("/", response_model=Product)
 def create_product(product: ProductCreate):
+
     try:
         # Use model_dump() for Pydantic v2 compat, fallback to dict()
         data = product.model_dump() if hasattr(product, 'model_dump') else product.dict()

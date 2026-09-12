@@ -4,8 +4,10 @@ from models import Order, OrderUpdate, OrderAssign
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
+@router.get("")
 @router.get("/")
 def get_orders():
+
     try:
         response = supabase.from_("orders").select("*").order("created_at", desc=True).execute()
         return response.data

@@ -12,6 +12,7 @@ class CreateRiderRequest(BaseModel):
     phone_number: str = ""
 
 
+@router.get("")
 @router.get("/")
 def get_riders():
     """Get all riders with their profiles."""
@@ -32,8 +33,10 @@ def get_riders():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("")
 @router.post("/")
 def create_rider(payload: CreateRiderRequest):
+
     """Create a new rider auth user and profile. Requires service role key."""
     if not admin_supabase:
         raise HTTPException(
