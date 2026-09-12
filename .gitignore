@@ -1,3 +1,14 @@
 backend/.env
 apps/admin_panel/.env
 apps/supabase_env.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Vercel
+.vercel/
