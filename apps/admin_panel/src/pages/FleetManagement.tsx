@@ -120,14 +120,14 @@ const FleetManagement: React.FC = () => {
     return (
         <div className="layout">
             <Sidebar />
-            <div className="content" style={{ flexDirection: 'column', overflow: 'hidden' }}>
+            <div className="main-content" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
                 {/* Header */}
-                <div style={{ padding: '28px 32px 0', flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ padding: '24px 32px 16px', flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-surface)' }}>
                     <div>
-                        <h1 style={{ margin: '0 0 4px', color: 'var(--text-primary)', fontSize: '1.8rem', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <h1 style={{ margin: '0 0 4px', color: 'var(--text-primary)', fontSize: '1.6rem', display: 'flex', alignItems: 'center', gap: '12px' }}>
                             <FaUsersCog color="var(--accent-primary)" /> Fleet Management
                         </h1>
-                        <p style={{ margin: '0 0 20px', color: 'var(--text-muted)', fontSize: '0.9em' }}>Manage your delivery riders</p>
+                        <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9em' }}>Manage your delivery riders</p>
                     </div>
                     <button
                         onClick={() => { 
@@ -136,7 +136,7 @@ const FleetManagement: React.FC = () => {
                         }}
                         style={{
                             display: 'flex', alignItems: 'center', gap: '8px',
-                            background: 'var(--accent-primary)', color: '#0B0B0B',
+                            background: 'var(--accent-primary)', color: '#FFFFFF',
                             border: 'none', borderRadius: '10px', padding: '10px 18px',
                             fontWeight: 700, cursor: 'pointer', fontSize: '0.95em',
                             transition: 'opacity 0.2s'
@@ -147,7 +147,7 @@ const FleetManagement: React.FC = () => {
                 </div>
 
                 {/* Table */}
-                <div style={{ flex: 1, overflowY: 'auto', padding: '16px 32px 32px' }}>
+                <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px 32px' }}>
                     {loading ? (
                         <div style={{ display: 'flex', height: '200px', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>Loading fleet...</div>
                     ) : (
@@ -270,7 +270,7 @@ const FleetManagement: React.FC = () => {
                                 <button
                                     type="submit"
                                     disabled={formLoading}
-                                    style={{ marginTop: '12px', width: '100%', padding: '12px', background: 'var(--accent-primary)', color: '#0B0B0B', border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '1em', cursor: formLoading ? 'not-allowed' : 'pointer', opacity: formLoading ? 0.7 : 1 }}
+                                    style={{ marginTop: '12px', width: '100%', padding: '12px', background: 'var(--accent-primary)', color: '#FFFFFF', border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '1em', cursor: formLoading ? 'not-allowed' : 'pointer', opacity: formLoading ? 0.7 : 1 }}
                                 >
                                     {formLoading ? 'Updating Rider...' : 'Update Rider'}
                                 </button>
@@ -333,7 +333,7 @@ const FleetManagement: React.FC = () => {
                                 <button
                                     type="submit"
                                     disabled={formLoading}
-                                    style={{ marginTop: '4px', width: '100%', padding: '12px', background: 'var(--accent-primary)', color: '#0B0B0B', border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '1em', cursor: formLoading ? 'not-allowed' : 'pointer', opacity: formLoading ? 0.7 : 1 }}
+                                    style={{ marginTop: '4px', width: '100%', padding: '12px', background: 'var(--accent-primary)', color: '#FFFFFF', border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '1em', cursor: formLoading ? 'not-allowed' : 'pointer', opacity: formLoading ? 0.7 : 1 }}
                                 >
                                     {formLoading ? 'Creating Rider...' : 'Create Rider Account'}
                                 </button>

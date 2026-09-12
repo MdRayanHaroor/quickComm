@@ -1,10 +1,13 @@
-from pydantic import BaseModel
-from typing import Optional, List
-from datetime import datetime
+from pydantic import BaseModel, field_validator
+from typing import Optional, List, Any, Union
+from datetime import datetime, time
 from uuid import UUID
-
-# Enums
 from enum import Enum
+
+
+# ============================================================
+# Enums
+# ============================================================
 
 class Role(str, Enum):
     ADMIN = "admin"
@@ -19,7 +22,33 @@ class OrderStatus(str, Enum):
     DELIVERED = "delivered"
     CANCELLED = "cancelled"
 
+class PaymentMethod(str, Enum):
+    COD = "cod"
+    UPI = "upi"
+    CARD = "card"
+    WALLET = "wallet"
+    NETBANKING = "netbanking"
+
+class PaymentStatus(str, Enum):
+    PENDING = "pending"
+    PAID = "paid"
+    FAILED = "failed"
+    REFUNDED = "refunded"
+
+class UnitType(str, Enum):
+    ML = "ml"
+    L = "l"
+    G = "g"
+    KG = "kg"
+    PCS = "pcs"
+    PACK = "pack"
+    DOZEN = "dozen"
+
+
+# ============================================================
 # Profile Models
+# ============================================================
+
 class ProfileBase(BaseModel):
     full_name: Optional[str] = None
     phone_number: Optional[str] = None
@@ -35,36 +64,239 @@ class Profile(ProfileBase):
     class Config:
         from_attributes = True
 
-# Product Models
-class ProductBase(BaseModel):
-    name: str
-    description: Optional[str] = None
-    size: Optional[str] = None
-    price: float
-    category: str = "Main Course"
-    image_url: Optional[str] = None
-    is_available: bool = True
 
-class ProductCreate(ProductBase):
-    pass
-class Product(ProductBase):
+# ============================================================
+# Store Models
+# ============================================================
+
+class StoreBase(BaseModel):
+    name: str
+    slug: Optional[str] = None
+    is_active: bool = True
+
+class Store(StoreBase):
     id: int
     created_at: datetime
 
     class Config:
         from_attributes = True
 
-# Order Models
-class OrderItemBase(BaseModel):
+
+# ============================================================
+# Brand Models
+# ============================================================
+
+class BrandBase(BaseModel):
+    name: str
+    logo_url: Optional[str] = None
+    is_active: bool = True
+
+class BrandCreate(BrandBase):
+    store_id: int = 1
+
+class BrandUpdate(BaseModel):
+    name: Optional[str] = None
+    logo_url: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class Brand(BrandBase):
+    id: int
+    store_id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================
+# Category Models
+# ============================================================
+
+class CategoryBase(BaseModel):
+    name: str
+    slug: str
+    parent_id: Optional[int] = None
+    image_url: Optional[str] = None
+    sort_order: int = 0
+    is_active: bool = True
+
+class CategoryCreate(CategoryBase):
+    store_id: int = 1
+
+class CategoryUpdate(BaseModel):
+    name: Optional[str] = None
+    slug: Optional[str] = None
+    parent_id: Optional[int] = None
+    image_url: Optional[str] = None
+    sort_order: Optional[int] = None
+    is_active: Optional[bool] = None
+
+class Category(CategoryBase):
+    id: int
+    store_id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class CategoryTree(Category):
+    """Category with nested children for tree response"""
+    children: List['CategoryTree'] = []
+
+CategoryTree.model_rebuild()
+
+
+# ============================================================
+# Product Variant Models
+# ============================================================
+
+class ProductVariantBase(BaseModel):
+    variant_name: str
+    unit_value: Optional[float] = None
+    unit_type: Optional[str] = None
+    mrp: float
+    selling_price: float
+    stock_quantity: int = 0
+    low_stock_alert: int = 10
+    is_available: bool = True
+    image_url: Optional[str] = None
+    sort_order: int = 0
+    sku: Optional[str] = None
+    barcode: Optional[str] = None
+
+    @field_validator('selling_price')
+    @classmethod
+    def selling_price_lte_mrp(cls, v: float, info: Any) -> float:
+        mrp = info.data.get('mrp')
+        if mrp is not None and v > mrp:
+            raise ValueError(f'selling_price ({v}) cannot exceed mrp ({mrp})')
+        return v
+
+class ProductVariantCreate(ProductVariantBase):
     product_id: int
+
+class ProductVariantUpdate(BaseModel):
+    variant_name: Optional[str] = None
+    unit_value: Optional[float] = None
+    unit_type: Optional[str] = None
+    mrp: Optional[float] = None
+    selling_price: Optional[float] = None
+    stock_quantity: Optional[int] = None
+    low_stock_alert: Optional[int] = None
+    is_available: Optional[bool] = None
+    image_url: Optional[str] = None
+    sort_order: Optional[int] = None
+    sku: Optional[str] = None
+    barcode: Optional[str] = None
+
+class ProductVariant(ProductVariantBase):
+    id: int
+    product_id: int
+    created_at: datetime
+    updated_at: datetime
+
+    # Computed field
+    @property
+    def discount_percent(self) -> float:
+        if self.mrp > 0:
+            return round(((self.mrp - self.selling_price) / self.mrp) * 100, 1)
+        return 0.0
+
+    class Config:
+        from_attributes = True
+
+class StockAdjust(BaseModel):
+    variant_id: int
+    quantity: int   # positive = add stock, negative = remove
+
+
+# ============================================================
+# Product Models
+# ============================================================
+
+class ProductBase(BaseModel):
+    name: str
+    slug: Optional[str] = None
+    description: Optional[str] = None
+    brand_id: Optional[int] = None
+    category_id: Optional[int] = None
+    store_id: int = 1
+    price: float = 0.0                # legacy DB not-null column compatibility
+    tags: Optional[List[str]] = []
+    images: Optional[List[str]] = []
+    image_url: Optional[str] = None   # deprecated legacy field
+    gst_rate: float = 0
+    is_available: bool = True
+
+class ProductCreate(ProductBase):
+    pass
+
+class ProductUpdate(BaseModel):
+    name: Optional[str] = None
+    slug: Optional[str] = None
+    description: Optional[str] = None
+    brand_id: Optional[int] = None
+    category_id: Optional[int] = None
+    tags: Optional[List[str]] = None
+    images: Optional[List[str]] = None
+    image_url: Optional[str] = None
+    gst_rate: Optional[float] = None
+    is_available: Optional[bool] = None
+
+class Product(ProductBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    variants: List[ProductVariant] = []
+    brand: Optional[Brand] = None
+    category: Optional[Union[Category, str]] = None
+
+    class Config:
+        from_attributes = True
+
+class ProductListItem(BaseModel):
+    """Lightweight product for list views — no nested variants"""
+    id: int
+    name: str
+    slug: Optional[str] = None
+    category_id: Optional[int] = None
+    brand_id: Optional[int] = None
+    is_available: bool
+    images: List[str] = []
+    image_url: Optional[str] = None
+    gst_rate: float = 0
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    # Aggregated from variants
+    min_price: Optional[float] = None
+    max_price: Optional[float] = None
+    variant_count: int = 0
+    total_stock: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================
+# Order Models
+# ============================================================
+
+class OrderItemInput(BaseModel):
+    """What the client sends when placing an order"""
+    variant_id: int
     quantity: int
 
 class OrderCreate(BaseModel):
-    items: List[OrderItemBase]
+    items: List[OrderItemInput]
     delivery_address: str
     delivery_lat: Optional[float] = None
     delivery_lng: Optional[float] = None
     total_amount: float
+    delivery_fee: float = 0
+    discount_amount: float = 0
+    coupon_code: Optional[str] = None
+    payment_method: PaymentMethod = PaymentMethod.COD
+    delivery_notes: Optional[str] = None
 
 class OrderUpdate(BaseModel):
     status: OrderStatus
@@ -78,14 +310,85 @@ class Order(BaseModel):
     rider_id: Optional[UUID] = None
     status: OrderStatus
     total_amount: float
+    delivery_fee: float = 0
+    discount_amount: float = 0
+    coupon_code: Optional[str] = None
+    payment_method: Optional[str] = None
+    payment_status: Optional[str] = None
     delivery_address: str
+    delivery_lat: Optional[float] = None
+    delivery_lng: Optional[float] = None
+    delivery_notes: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
     class Config:
         from_attributes = True
 
-# Rider Location Models
+
+# ============================================================
+# Customer Address Models
+# ============================================================
+
+class CustomerAddressBase(BaseModel):
+    label: str = "Home"
+    address_line1: str
+    address_line2: Optional[str] = None
+    landmark: Optional[str] = None
+    city: str = "Hyderabad"
+    pincode: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    is_default: bool = False
+
+class CustomerAddressCreate(CustomerAddressBase):
+    pass
+
+class CustomerAddressUpdate(BaseModel):
+    label: Optional[str] = None
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    landmark: Optional[str] = None
+    city: Optional[str] = None
+    pincode: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    is_default: Optional[bool] = None
+
+class CustomerAddress(CustomerAddressBase):
+    id: int
+    user_id: UUID
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================
+# Store Settings Models
+# ============================================================
+
+class StoreSettingsUpdate(BaseModel):
+    store_name: Optional[str] = None
+    store_logo_url: Optional[str] = None
+    store_address: Optional[str] = None
+    phone_number: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    delivery_radius_km: Optional[float] = None
+    min_order_amount: Optional[float] = None
+    delivery_fee_fixed: Optional[float] = None
+    free_delivery_above: Optional[float] = None
+    is_open: Optional[bool] = None
+    opening_time: Optional[str] = None
+    closing_time: Optional[str] = None
+    days_open: Optional[List[str]] = None
+
+
+# ============================================================
+# Rider Location Models (unchanged)
+# ============================================================
+
 class RiderLocationBase(BaseModel):
     lat: float
     lng: float
@@ -94,9 +397,24 @@ class RiderLocationUpdate(RiderLocationBase):
     pass
 
 class RiderLocation(RiderLocationBase):
-    id: int
     rider_id: UUID
     last_updated: datetime
 
     class Config:
         from_attributes = True
+
+
+# ============================================================
+# Inventory / Utility Models
+# ============================================================
+
+class LowStockItem(BaseModel):
+    variant_id: int
+    product_id: int
+    product_name: str
+    variant_name: str
+    stock_quantity: int
+    low_stock_alert: int
+
+class BulkStockAdjust(BaseModel):
+    adjustments: List[StockAdjust]

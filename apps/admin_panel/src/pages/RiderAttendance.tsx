@@ -80,11 +80,11 @@ const RiderAttendance: React.FC = () => {
     return (
         <div className="layout">
             <Sidebar />
-            <div className="content" style={{ flexDirection: 'column', overflow: 'hidden' }}>
+            <div className="main-content" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
                 {/* Header */}
-                <div style={{ padding: '28px 32px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                <div style={{ padding: '24px 32px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, borderBottom: '1px solid var(--border-color)', background: 'var(--bg-surface)' }}>
                     <div>
-                        <h1 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1.8rem', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <h1 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1.6rem', display: 'flex', alignItems: 'center', gap: '12px' }}>
                             <FaCalendarAlt color="var(--accent-primary)" /> Rider Attendance
                         </h1>
                         <p style={{ margin: '6px 0 0', color: 'var(--text-muted)', fontSize: '0.9em' }}>Online hours per rider for the selected period</p>
@@ -102,7 +102,7 @@ const RiderAttendance: React.FC = () => {
                         </select>
                         <button
                             onClick={handleDownloadCSV}
-                            style={{ display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', gap: '8px', padding: '8px 12px', background: 'var(--accent-primary)', color: '#0B0B0B', border: 'none', borderRadius: '10px', fontWeight: 700, cursor: 'pointer', fontSize: '0.9em' }}
+                            style={{ display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', gap: '8px', padding: '8px 12px', background: 'var(--accent-primary)', color: '#FFFFFF', border: 'none', borderRadius: '10px', fontWeight: 700, cursor: 'pointer', fontSize: '0.9em' }}
                         >
                             <FaDownload size={14} /> Export CSV
                         </button>

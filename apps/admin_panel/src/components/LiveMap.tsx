@@ -6,6 +6,7 @@ import RiderMarker from './RiderMarker';
 import L from 'leaflet';
 import { FaStore } from 'react-icons/fa';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { useTheme } from './ThemeContext';
 
 // --- Custom Components ---
 
@@ -93,6 +94,7 @@ interface LiveMapProps {
 }
 
 const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, onStoreLocationUpdate, selectedRiderId, onMapClick }) => {
+    const { isDark } = useTheme();
     const [riders, setRiders] = useState<Record<string, RiderState>>({});
     const [viewCenter, setViewCenter] = useState<[number, number]>(() => {
         if (storeLocation) return [storeLocation.lat, storeLocation.lng];
@@ -186,7 +188,12 @@ const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, onStoreLocationUpdate,
             <MapEvents onClick={onMapClick} />
             
             <TileLayer
-                url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                key={isDark ? 'dark-tiles' : 'light-tiles'}
+                url={
+                    isDark
+                        ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                        : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+                }
             />
 
             {/* Store Marker */}
@@ -222,16 +229,18 @@ const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, onStoreLocationUpdate,
                 <button
                     onClick={handleResetLocation}
                     style={{
-                        background: '#374151',
-                        color: 'white',
-                        border: '1px solid #4b5563',
-                        padding: '8px 12px',
-                        borderRadius: '8px',
+                        background: 'var(--bg-surface)',
+                        color: 'var(--text-primary)',
+                        border: '1px solid var(--border)',
+                        padding: '8px 14px',
+                        borderRadius: 'var(--radius-md)',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '5px',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.3)'
+                        gap: '6px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        boxShadow: 'var(--shadow-md)'
                     }}
                 >
                     <svg stroke="currentColor" fill="none" strokeWidth="2" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>

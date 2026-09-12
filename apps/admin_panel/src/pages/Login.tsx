@@ -58,12 +58,12 @@ const Login: React.FC = () => {
           position: 'absolute',
           bottom: '10%',
           left: '10%',
-          color: 'white',
+          color: '#FFFFFF',
           maxWidth: '500px'
         }}>
-          <h1 style={{ fontSize: '3.5rem', marginBottom: '1rem', textShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>Experience the Royalty</h1>
-          <p style={{ fontSize: '1.2rem', opacity: 0.9, lineHeight: 1.6, textShadow: '0 2px 4px rgba(0,0,0,0.5)', fontFamily: 'Inter' }}>
-            Manage the finest authentic Indian biryani with precision, elegance, and speed.
+          <h1 style={{ fontSize: '3.5rem', marginBottom: '1rem', color: '#FFFFFF', textShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>Quick Commerce</h1>
+          <p style={{ fontSize: '1.2rem', color: '#FFFFFF', opacity: 0.9, lineHeight: 1.6, textShadow: '0 2px 4px rgba(0,0,0,0.5)', fontFamily: 'Inter' }}>
+            Manage orders, inventory, and fleet operations with precision and speed.
           </p>
         </div>
       </motion.div>
@@ -83,7 +83,7 @@ const Login: React.FC = () => {
       >
         <div style={{ width: '100%', maxWidth: '400px', padding: '40px' }}>
           <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-            <h2 style={{ fontSize: '2.5rem', color: 'var(--accent-primary)', marginBottom: '10px' }}>Taj Biryani</h2>
+            <h2 style={{ fontSize: '2.5rem', color: 'var(--accent-primary)', marginBottom: '10px' }}>Quick Comm</h2>
             <p style={{ color: 'var(--text-muted)', fontSize: '1rem' }}>Sign in to the Admin Portal</p>
           </div>
 
@@ -92,7 +92,7 @@ const Login: React.FC = () => {
               <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)', fontSize: '0.9rem', fontWeight: 500 }}>Email Address</label>
               <input
                 type="email"
-                placeholder="admin@tajbiryani.com"
+                placeholder="admin@quickcomm.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -149,7 +149,7 @@ const Login: React.FC = () => {
           </form>
           
           <div style={{ marginTop: '30px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-            Secure Portal • Taj Biryani Internal Use Only
+            Secure Portal • Quick Comm Internal Use Only
           </div>
         </div>
       </motion.div>

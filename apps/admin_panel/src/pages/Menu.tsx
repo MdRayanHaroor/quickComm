@@ -98,7 +98,7 @@ const Menu = () => {
       <Sidebar />
       <div className="content">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
-          <h1 style={{ color: 'var(--text-primary)', fontSize: '2rem' }}>Menu Management</h1>
+          <h1 style={{ color: 'var(--text-primary)', fontSize: '2rem' }}>Item Management</h1>
           <button className="btn btn-primary" onClick={() => { resetForm(); setShowModal(true); }}>
             <FaPlus style={{ marginRight: '8px' }} /> Add Item
           </button>
@@ -177,7 +177,7 @@ const Menu = () => {
                 <form onSubmit={handleSubmit}>
                   <div style={{ marginBottom: '15px' }}>
                     <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)', fontSize: '0.9rem' }}>Item Name</label>
-                    <input placeholder="e.g. Hyderabadi Chicken Dum Biryani" value={name} onChange={e => setName(e.target.value)} required />
+                    <input placeholder="e.g. Fresh Milk 1L / Organic Produce" value={name} onChange={e => setName(e.target.value)} required />
                   </div>
                   
                   <div style={{ marginBottom: '15px' }}>

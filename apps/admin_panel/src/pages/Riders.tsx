@@ -152,7 +152,7 @@ const Riders: React.FC = () => {
                                 width: '100%', padding: '12px', marginBottom: '20px', 
                                 background: selectedRiderId === null ? 'var(--accent-primary)' : 'var(--bg-surface-elevated)',
                                 border: `1px solid ${selectedRiderId === null ? 'var(--accent-primary)' : 'var(--border-color)'}`,
-                                color: selectedRiderId === null ? '#0B0B0B' : 'var(--text-primary)', 
+                                color: selectedRiderId === null ? '#FFFFFF' : 'var(--text-primary)', 
                                 cursor: 'pointer', borderRadius: '8px',
                                 fontWeight: 600,
                                 transition: 'all 0.3s ease'

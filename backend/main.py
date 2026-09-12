@@ -9,28 +9,39 @@ if CURRENT_DIR not in sys.path:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import supabase
-from routers import orders, riders, products
+from routers import orders, riders, products, categories, brands, variants, inventory, uploads
 
 
-
-app = FastAPI(title="QuickComm Delivery System API")
+app = FastAPI(
+    title="QuickComm Delivery System API",
+    description="Quick-commerce backend for supermarkets and kirana stores",
+    version="2.0.0",
+)
 
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allow all for now
+    allow_origins=["*"],  # Allow all for now
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Routers
 app.include_router(orders.router)
 app.include_router(riders.router)
 app.include_router(products.router)
+app.include_router(categories.router)
+app.include_router(brands.router)
+app.include_router(variants.router)
+app.include_router(inventory.router)
+app.include_router(uploads.router)
+
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to QuickComm Delivery System API"}
+    return {"message": "QuickComm Delivery System API v2.0", "docs": "/docs"}
+
 
 @app.get("/health")
 def health_check():
@@ -45,10 +56,10 @@ def health_check():
 
     return {
         "status": "ok",
+        "version": "2.0.0",
         "configured": {
             "SUPABASE_URL": bool(url),
             "SUPABASE_KEY": bool(key),
             "SUPABASE_SERVICE_KEY": bool(service_key),
         },
     }
-

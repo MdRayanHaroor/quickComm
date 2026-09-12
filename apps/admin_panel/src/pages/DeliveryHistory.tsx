@@ -86,23 +86,23 @@ const DeliveryHistory: React.FC = () => {
     return (
         <div className="layout">
             <Sidebar />
-            <div className="content" style={{ flexDirection: 'column', overflow: 'hidden' }}>
+            <div className="main-content" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
                 {/* Header */}
-                <div style={{ padding: '28px 32px 0', flexShrink: 0 }}>
-                    <h1 style={{ margin: '0 0 4px', color: 'var(--text-primary)', fontSize: '1.8rem', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ padding: '24px 32px 14px', flexShrink: 0, borderBottom: '1px solid var(--border-color)', background: 'var(--bg-surface)' }}>
+                    <h1 style={{ margin: '0 0 4px', color: 'var(--text-primary)', fontSize: '1.6rem', display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <FaClipboardList color="var(--accent-primary)" /> Delivery History
                     </h1>
-                    <p style={{ margin: '0 0 20px', color: 'var(--text-muted)', fontSize: '0.9em' }}>All orders across all riders</p>
+                    <p style={{ margin: '0 0 16px', color: 'var(--text-muted)', fontSize: '0.9em' }}>All orders across all riders</p>
 
-                    {/* Filters */}
-                    <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '4px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-muted)', fontSize: '0.85em' }}>
-                            <FaFilter size={12} /> Filters:
+                    {/* Filters - Compact Single Row */}
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'nowrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: 'var(--text-muted)', fontSize: '0.82em', flexShrink: 0 }}>
+                            <FaFilter size={11} /> Filters:
                         </div>
                         <select
                             value={filterRider}
                             onChange={e => setFilterRider(e.target.value)}
-                            style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-surface-elevated)', color: 'var(--text-primary)', fontSize: '0.85em', cursor: 'pointer' }}
+                            style={{ width: '125px', padding: '6px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: 'var(--bg-surface-elevated)', color: 'var(--text-primary)', fontSize: '0.82em', cursor: 'pointer', flexShrink: 0 }}
                         >
                             <option value="all">All Riders</option>
                             {riders.map(r => <option key={r.id} value={r.id}>{r.full_name}</option>)}
@@ -110,37 +110,37 @@ const DeliveryHistory: React.FC = () => {
                         <select
                             value={filterStatus}
                             onChange={e => setFilterStatus(e.target.value)}
-                            style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-surface-elevated)', color: 'var(--text-primary)', fontSize: '0.85em', cursor: 'pointer' }}
+                            style={{ width: '118px', padding: '6px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: 'var(--bg-surface-elevated)', color: 'var(--text-primary)', fontSize: '0.82em', cursor: 'pointer', flexShrink: 0 }}
                         >
                             <option value="all">All Statuses</option>
                             {['pending', 'confirmed', 'preparing', 'out_for_delivery', 'delivered', 'cancelled'].map(s => (
                                 <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
                             ))}
                         </select>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
                             <input
                                 type="date"
                                 value={filterStartDate}
                                 onChange={e => setFilterStartDate(e.target.value)}
-                                style={{ padding: '7px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-surface-elevated)', color: 'var(--text-primary)', fontSize: '0.85em', cursor: 'pointer' }}
+                                style={{ width: '115px', padding: '5px 6px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: 'var(--bg-surface-elevated)', color: 'var(--text-primary)', fontSize: '0.8em', cursor: 'pointer' }}
                             />
-                            <span style={{ color: 'var(--text-muted)' }}>-</span>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8em' }}>to</span>
                             <input
                                 type="date"
                                 value={filterEndDate}
                                 onChange={e => setFilterEndDate(e.target.value)}
-                                style={{ padding: '7px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-surface-elevated)', color: 'var(--text-primary)', fontSize: '0.85em', cursor: 'pointer' }}
+                                style={{ width: '115px', padding: '5px 6px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: 'var(--bg-surface-elevated)', color: 'var(--text-primary)', fontSize: '0.8em', cursor: 'pointer' }}
                             />
                         </div>
                         {(filterRider !== 'all' || filterStatus !== 'all' || filterStartDate || filterEndDate) && (
-                            <button onClick={() => { setFilterRider('all'); setFilterStatus('all'); setFilterStartDate(''); setFilterEndDate(''); }} style={{ padding: '7px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '0.85em', cursor: 'pointer' }}>Clear</button>
+                            <button onClick={() => { setFilterRider('all'); setFilterStatus('all'); setFilterStartDate(''); setFilterEndDate(''); }} style={{ padding: '5px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-muted)', fontSize: '0.8em', cursor: 'pointer', flexShrink: 0 }}>Clear</button>
                         )}
-                        <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.85em' }}>{filteredOrders.length} orders</span>
+                        <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.82em', flexShrink: 0, whiteSpace: 'nowrap' }}>{filteredOrders.length} orders</span>
                     </div>
                 </div>
 
                 {/* Table */}
-                <div style={{ flex: 1, overflowY: 'auto', padding: '0 32px 32px' }}>
+                <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px 32px' }}>
                     {loading ? (
                         <div style={{ display: 'flex', height: '200px', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>Loading orders...</div>
                     ) : (
