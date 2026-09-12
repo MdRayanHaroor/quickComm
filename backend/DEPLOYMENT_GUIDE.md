@@ -21,9 +21,13 @@ This guide outlines how to deploy the FastAPI backend as a standalone Serverless
    * **Root Directory**: Click **Edit** and choose `backend`.
 5. Expand **Environment Variables** and add the following:
    * `SUPABASE_URL`: Your Supabase project URL (e.g. `https://xxxx.supabase.co`)
-   * `SUPABASE_KEY`: Your Supabase anon / public key
+   * `SUPABASE_KEY`: Your Supabase anon / public key (also accepts `SUPABASE_ANON_KEY`)
    * `SUPABASE_SERVICE_KEY`: Your Supabase `service_role` secret key (needed for rider management)
 6. Click **Deploy**.
+
+> **⚠️ CRITICAL NOTE on Environment Variables:**
+> If you configure or update Environment Variables in **Project Settings** after the initial deployment, Vercel **does not** automatically update live functions. You **must** go to the **Deployments** tab, click the **•••** (three dots) next to the latest deployment, and click **Redeploy**.
+
 
 ---
 

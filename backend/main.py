@@ -34,4 +34,21 @@ def read_root():
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok"}
+    url = os.environ.get("SUPABASE_URL") or os.environ.get("VITE_SUPABASE_URL")
+    key = (
+        os.environ.get("SUPABASE_KEY")
+        or os.environ.get("SUPABASE_ANON_KEY")
+        or os.environ.get("VITE_SUPABASE_ANON_KEY")
+        or os.environ.get("SUPABASE_SERVICE_KEY")
+    )
+    service_key = os.environ.get("SUPABASE_SERVICE_KEY")
+
+    return {
+        "status": "ok",
+        "configured": {
+            "SUPABASE_URL": bool(url),
+            "SUPABASE_KEY": bool(key),
+            "SUPABASE_SERVICE_KEY": bool(service_key),
+        },
+    }
+
