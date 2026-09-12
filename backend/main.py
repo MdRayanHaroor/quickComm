@@ -1,7 +1,16 @@
+import sys
+import os
+
+# Ensure current directory is in sys.path for serverless environments (e.g., Vercel Functions)
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import supabase
 from routers import orders, riders, products
+
 
 
 app = FastAPI(title="QuickComm Delivery System API")
