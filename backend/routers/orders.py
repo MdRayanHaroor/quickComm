@@ -50,14 +50,83 @@ def get_order(order_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+import math
+
+def haversine_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate the great circle distance between two points on the earth in kilometers."""
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (math.sin(dlat / 2) ** 2 +
+         math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
+         math.sin(dlon / 2) ** 2)
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
+
+
 @router.post("", status_code=201)
 @router.post("/", status_code=201)
 def create_order(order: OrderCreate, user_id: str = Query(..., description="Supabase user UUID")):
     """
-    Create an order. Fetches variant data, captures snapshots, decrements stock.
-    user_id is passed as query param (authenticated from client-side token in production).
+    Create an order. Validates store status, delivery radius, min order amount,
+    captures snapshots, and decrements variant inventory stock.
     """
     try:
+        # ---- 0. Fetch store settings and validate operational status ----
+        settings_resp = supabase.from_("store_settings").select("*").eq("id", 1).maybe_single().execute()
+        settings = settings_resp.data if settings_resp else None
+
+        if settings:
+            # A. Check if store is open
+            if settings.get("is_open") is False:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Store is currently closed for orders. Please try again during operating hours."
+                )
+
+            # B. Check delivery radius (if enabled)
+            raw_radius = settings.get("delivery_radius_km")
+            delivery_radius_km = float(raw_radius) if raw_radius is not None else 0.0
+
+            if delivery_radius_km > 0:
+                store_lat = settings.get("lat") or settings.get("latitude")
+                store_lng = settings.get("lng") or settings.get("longitude")
+                if (store_lat is None or store_lng is None) and settings.get("location"):
+                    loc_str = str(settings.get("location"))
+                    import re
+                    m = re.search(r"POINT\s*\(\s*([-\d.]+)\s+([-\d.]+)\s*\)", loc_str)
+                    if m:
+                        store_lng = float(m.group(1))
+                        store_lat = float(m.group(2))
+
+                cust_lat = order.delivery_lat
+                cust_lng = order.delivery_lng
+
+                # If user didn't share GPS coords but entered text address, attempt auto-geocoding
+                if (cust_lat is None or cust_lng is None) and order.delivery_address:
+                    try:
+                        import urllib.request
+                        import json
+                        import urllib.parse
+                        url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(order.delivery_address)}&format=json&limit=1&countrycodes=in"
+                        req = urllib.request.Request(url, headers={"User-Agent": "QuickComm-Backend/1.0"})
+                        with urllib.request.urlopen(req, timeout=2.5) as resp:
+                            geo_data = json.loads(resp.read().decode())
+                            if geo_data and len(geo_data) > 0:
+                                cust_lat = float(geo_data[0]["lat"])
+                                cust_lng = float(geo_data[0]["lon"])
+                    except Exception as geo_err:
+                        print(f"Address geocoding fallback failed: {geo_err}")
+
+                # Enforce radius check if coordinates are resolved
+                if store_lat is not None and store_lng is not None and cust_lat is not None and cust_lng is not None:
+                    dist_km = haversine_distance_km(store_lat, store_lng, cust_lat, cust_lng)
+                    if dist_km > delivery_radius_km:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Delivery address is {dist_km:.1f} km away, which exceeds our maximum delivery radius of {delivery_radius_km:.1f} km."
+                        )
+
         # ---- 1. Validate variants & compute totals ----
         order_items_data = []
         computed_total = 0.0
@@ -96,12 +165,33 @@ def create_order(order: OrderCreate, user_id: str = Query(..., description="Supa
                 "variant_name_snapshot": variant["variant_name"],
             })
 
+        # ---- 1b. Enforce Minimum Order Amount ----
+        if settings:
+            min_order = float(settings.get("min_order_amount") or 0.0)
+            if min_order > 0 and computed_total < min_order:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Minimum order amount is ₹{min_order:.0f}. Current item subtotal is ₹{computed_total:.0f}."
+                )
+
+        # ---- 1c. Determine Delivery Fee ----
+        delivery_fee = order.delivery_fee
+        if delivery_fee is None and settings:
+            free_above = float(settings.get("free_delivery_above") or 0.0)
+            fixed_fee = float(settings.get("delivery_fee_fixed") or 0.0)
+            if free_above > 0 and computed_total >= free_above:
+                delivery_fee = 0.0
+            else:
+                delivery_fee = fixed_fee
+
+        final_total = order.total_amount or (computed_total + (delivery_fee or 0.0))
+
         # ---- 2. Insert order ----
         order_data = {
             "user_id": user_id,
             "status": "pending",
-            "total_amount": order.total_amount or computed_total,
-            "delivery_fee": order.delivery_fee,
+            "total_amount": final_total,
+            "delivery_fee": delivery_fee,
             "discount_amount": order.discount_amount,
             "coupon_code": order.coupon_code,
             "payment_method": order.payment_method,

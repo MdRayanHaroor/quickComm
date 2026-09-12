@@ -24,6 +24,10 @@ This repository is structured as a monorepo containing multiple interconnected a
 
 Detailed startup commands can be found in `instructions.txt`.
 
+#### 0. Database (Supabase)
+*   **Fresh Setup / Clone**: Run [`supabase/schema.sql`](./supabase/schema.sql) in your Supabase SQL Editor. This sets up all tables, RLS policies, triggers, and default store settings.
+*   **Existing Database Upgrade**: Run individual migration files located in [`supabase/migrations/`](./supabase/migrations/).
+
 #### 1. Backend (FastAPI)
 ```bash
 cd backend

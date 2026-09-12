@@ -8,8 +8,8 @@
 - [x] **1.2** `p4_order_payment_fields.sql` — orders and order_items enhancements, RPCs
 - [x] **1.3** `p5_customer_addresses.sql` — customer addresses table
 - [x] **1.4** `p6_store_settings_extend.sql` — store config columns
-- [ ] **1.5** Create Supabase Storage buckets (`product-images`, `category-images`, `brand-logos`) — **MANUAL STEP IN SUPABASE CONSOLE**
-- [ ] **1.6** Run migrations `p3`–`p6` in Supabase SQL Editor — **MANUAL STEP IN SUPABASE SQL EDITOR**
+- [x] **1.5** Storage buckets created via SQL (`product-images`, `category-images`, `brand-logos`) in `p7` & `schema.sql`
+- [x] **1.6** Consolidated master schema in `supabase/schema.sql` and incremental migrations `p2`–`p7` documented in `supabase/README.md`
 
 ## Phase 2 — Backend API
 

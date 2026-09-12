@@ -27,7 +27,7 @@ Phase 7 — Polish & Harden       (Priority: ONGOING)
 
 ### Tasks
 
-- [ ] **1.1** Create `supabase/migrations/p3_supermarket_product_catalog.sql`
+- [x] **1.1** Create `supabase/migrations/p3_supermarket_product_catalog.sql`
   - Create `brands` table + RLS
   - Create `categories` table (with self-ref) + RLS + indexes
   - ALTER `products` table — add new columns (additive, no drops)
@@ -36,27 +36,27 @@ Phase 7 — Polish & Harden       (Priority: ONGOING)
   - Seed sample brands (Amul, Britannia, Mother Dairy, Parle, Haldiram's)
   - Add `updated_at` auto-trigger on `products` and `product_variants`
 
-- [ ] **1.2** Create `supabase/migrations/p4_order_payment_fields.sql`
+- [x] **1.2** Create `supabase/migrations/p4_order_payment_fields.sql`
   - ALTER `orders` — add `delivery_fee`, `discount_amount`, `coupon_code`, `payment_method`, `payment_status`, `delivery_notes`
   - ALTER `order_items` — add `variant_id`, `product_name_snapshot`, `variant_name_snapshot`, `mrp_at_time`, `discount_at_time`
   - Add `decrement_variant_stock()` RPC function
   - Add `increment_variant_stock()` RPC (for cancellations)
 
-- [ ] **1.3** Create `supabase/migrations/p5_customer_addresses.sql`
+- [x] **1.3** Create `supabase/migrations/p5_customer_addresses.sql`
   - Create `customer_addresses` table + RLS
   - Keep `customers.address` as fallback (don't drop)
 
-- [ ] **1.4** Create `supabase/migrations/p6_store_settings_extend.sql`
+- [x] **1.4** Create `supabase/migrations/p6_store_settings_extend.sql`
   - ALTER `store_settings` — add all new config columns
   - UPDATE the existing row with sensible defaults
 
-- [ ] **1.5** Create Supabase Storage buckets
+- [x] **1.5** Create Supabase Storage buckets & Migration 7
   - `product-images` (public)
   - `category-images` (public)
   - `brand-logos` (public)
-  - Set storage policies: public read, admin-only write
+  - Storage policies added in `p7_rider_stats_and_profile_fixes.sql` and `schema.sql`
 
-- [ ] **1.6** Data migration — migrate existing products
+- [x] **1.6** Data migration — migrate existing products
   - For each existing product: create a default `product_variants` row
   - Set `category_id` to "Uncategorized" for all existing products
   - Test that existing orders still return correct data via JOIN
@@ -73,7 +73,7 @@ Phase 7 — Polish & Harden       (Priority: ONGOING)
 
 ### Tasks
 
-- [ ] **2.1** Update `backend/models.py`
+- [x] **2.1** Update `backend/models.py`
   - Add `Category`, `CategoryCreate`, `CategoryTree` models
   - Add `Brand`, `BrandCreate` models
   - Add `ProductVariant`, `ProductVariantCreate`, `ProductVariantUpdate` models
@@ -81,48 +81,49 @@ Phase 7 — Polish & Harden       (Priority: ONGOING)
   - Update `OrderCreate` — switch to `variant_id` instead of `product_id`
   - Update `OrderItemBase` — add snapshot fields
 
-- [ ] **2.2** Create `backend/routers/categories.py`
+- [x] **2.2** Create `backend/routers/categories.py`
   - `GET /categories/` — flat list
   - `GET /categories/tree` — nested JSON tree
   - `POST /categories/` — create (admin)
   - `PUT /categories/{id}` — update (admin)
   - `DELETE /categories/{id}` — delete (admin)
 
-- [ ] **2.3** Create `backend/routers/brands.py`
+- [x] **2.3** Create `backend/routers/brands.py`
   - Full CRUD
 
-- [ ] **2.4** Major rewrite of `backend/routers/products.py`
+- [x] **2.4** Major rewrite of `backend/routers/products.py`
   - `GET /products/` — add query params: `category_id`, `brand_id`, `search`, `is_available`, `page`, `limit`, `sort`
   - `GET /products/{id}` — return with variants nested
   - `POST /products/` — create product (without variants; variants added separately)
   - `PUT /products/{id}` — update product metadata
   - `DELETE /products/{id}` — cascade deletes variants
 
-- [ ] **2.5** Create `backend/routers/variants.py`
+- [x] **2.5** Create `backend/routers/variants.py`
   - `GET /products/{product_id}/variants`
   - `POST /products/{product_id}/variants`
   - `PUT /products/{product_id}/variants/{variant_id}`
   - `DELETE /products/{product_id}/variants/{variant_id}`
   - `PATCH /products/{product_id}/variants/{variant_id}/stock`
 
-- [ ] **2.6** Create `backend/routers/uploads.py`
+- [x] **2.6** Create `backend/routers/uploads.py`
   - `POST /upload/product/{product_id}/image` — upload to Supabase Storage
   - `DELETE /upload/product/{product_id}/image` — remove image
   - `POST /upload/category/{category_id}/image`
   - `POST /upload/brand/{brand_id}/logo`
 
-- [ ] **2.7** Create `backend/routers/inventory.py`
+- [x] **2.7** Create `backend/routers/inventory.py`
   - `GET /inventory/low-stock`
   - `GET /inventory/out-of-stock`
   - `POST /inventory/adjust` — bulk stock adjustment
 
-- [ ] **2.8** Update `backend/routers/orders.py`
+- [x] **2.8** Update `backend/routers/orders.py`
   - `create_order` — use `variant_id`, capture snapshots, decrement stock
   - `cancel_order` — restore stock via RPC
+  - Store operational checks: `is_open`, Haversine delivery radius check, `min_order_amount`, and free delivery waiver
 
-- [ ] **2.9** Register all new routers in `backend/main.py`
+- [x] **2.9** Register all new routers in `backend/main.py`
 
-- [ ] **2.10** Update `requirements.txt`
+- [x] **2.10** Update `requirements.txt`
   - Add `python-multipart` (for file upload endpoints)
 
 **✅ Phase 2 complete when:** All endpoints tested via FastAPI `/docs` swagger UI. Products with variants can be created, categories can be managed, image upload works.
@@ -137,30 +138,31 @@ Phase 7 — Polish & Harden       (Priority: ONGOING)
 
 ### Tasks
 
-- [ ] **3.1** Update `index.css` — New design tokens (green brand, light theme default)
-- [ ] **3.2** Update `Sidebar.tsx` — New nav items, grocery icons, green styling
-- [ ] **3.3** Create `src/components/ui/` — Design system components
+- [x] **3.1** Update `index.css` — New design tokens (green brand, light theme default)
+- [x] **3.2** Update `Sidebar.tsx` — New nav items, grocery icons, green styling, collapsible mode with tooltips
+- [x] **3.3** Create `src/components/ui/` & Tokens — Design system components
   - `Badge.tsx`, `DataTable.tsx`, `FilterBar.tsx`, `DrawerPanel.tsx`, `ImageDropzone.tsx`, `HierarchySelect.tsx`
-- [ ] **3.4** Create `src/pages/Products.tsx` — Main products table list view
+- [x] **3.4** Create `src/pages/Products.tsx` — Main products table list view
   - Table with image, name, category, brand, variants, price range, stock status
   - Filter bar (search, category, brand, status)
   - Pagination
-- [ ] **3.5** Create `src/components/products/ProductForm.tsx` — Add/Edit right-drawer
+- [x] **3.5** Create `src/components/products/ProductDrawer.tsx` — Add/Edit right-drawer
   - All form sections (basic info, classification, images, variants, GST, status)
   - Validates selling_price ≤ MRP
-- [ ] **3.6** Create `src/components/products/ProductImageUpload.tsx` — Drag-drop uploader
+- [x] **3.6** Create `src/components/products/ProductImageUpload.tsx` — Drag-drop uploader
   - Multiple images, preview thumbnails, reorderable, delete button
-- [ ] **3.7** Create `src/components/products/VariantEditor.tsx` — Inline variant table
-  - Add/edit/delete variants inline within ProductForm
+- [x] **3.7** Create `src/components/products/VariantEditor.tsx` — Inline variant table
+  - Add/edit/delete variants inline within ProductDrawer
+  - Barcode scanner (camera + USB hardware handheld)
   - Auto-compute discount %
-- [ ] **3.8** Create `src/pages/Categories.tsx` — Category tree manager
+- [x] **3.8** Create `src/pages/Categories.tsx` — Category tree manager
   - Tree with expand/collapse
   - Add/Edit/Delete category
   - Image upload per category
-- [ ] **3.9** Create `src/pages/Brands.tsx` — Brands table
+- [x] **3.9** Create `src/pages/Brands.tsx` — Brands table
   - Logo upload, active toggle
-- [ ] **3.10** Update `App.tsx` — New routes: `/products`, `/categories`, `/brands`
-- [ ] **3.11** Install new packages: `react-dropzone`, `react-select`, `react-hot-toast`, `recharts`
+- [x] **3.10** Update `App.tsx` — New routes: `/products`, `/categories`, `/brands`, `/inventory`, `/orders`
+- [x] **3.11** Install new packages: `react-dropzone`, `react-select`, `react-hot-toast`, `recharts`
 
 **✅ Phase 3 complete when:** Admin can add a product with multiple variants and images from the UI, browse by category, search by name.
 
@@ -174,11 +176,11 @@ Phase 7 — Polish & Harden       (Priority: ONGOING)
 
 ### Tasks
 
-- [ ] **4.1** Create `src/pages/Inventory.tsx` — Three-tab stock view
-- [ ] **4.2** Create `src/components/inventory/LowStockTable.tsx`
-- [ ] **4.3** Create `src/components/inventory/BulkStockUpdate.tsx`
-- [ ] **4.4** Update `src/pages/Dashboard.tsx` — Add new stat cards, charts
-- [ ] **4.5** Update `src/components/StoreSettings.tsx` — Delivery config, hours, logo
+- [x] **4.1** Create `src/pages/Inventory.tsx` — Three-tab stock view (All Stock, Low Stock, Out of Stock)
+- [x] **4.2** Create `src/components/inventory/LowStockTable.tsx` & Quick Stock Adjuster Modal
+- [x] **4.3** Bulk Product Import — `src/components/products/BulkImportModal.tsx` + Excel template download + preview validation
+- [x] **4.4** Update `src/pages/Dashboard.tsx` — Supermarket KPI stat cards, Recharts sales trend, separate `src/pages/Orders.tsx` live pipeline
+- [x] **4.5** Update `src/pages/Settings.tsx` — Delivery radius toggle with visual coverage circle on map, free delivery toggle, interactive Leaflet store map picker (click/drag pin, reverse geocoding, GPS locate), full-width responsive layout
 
 **✅ Phase 4 complete when:** Admin can see stock alerts, update stock, and has full store config control.
 
