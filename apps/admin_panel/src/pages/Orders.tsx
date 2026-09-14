@@ -161,7 +161,7 @@ const Orders: React.FC = () => {
                                 <FaShoppingBag color="var(--brand-primary)" /> Live Orders Pipeline
                             </h1>
                             <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '0.9em' }}>
-                                Manage incoming orders, kitchen prep, and rider dispatches
+                                Manage incoming orders, preparation, and rider dispatches
                             </p>
                         </div>
                         <button
@@ -177,7 +177,7 @@ const Orders: React.FC = () => {
                     <div style={{ display: 'flex', gap: 10, flexWrap: 'nowrap', overflowX: 'auto' }}>
                         {[
                             { key: 'pending', label: 'New Orders' },
-                            { key: 'preparing', label: 'Kitchen / Preparing' },
+                            { key: 'preparing', label: 'Preparing' },
                             { key: 'on_road', label: 'Out for Delivery' },
                             { key: 'past', label: 'Past Orders' }
                         ].map((t) => {

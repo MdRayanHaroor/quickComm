@@ -143,7 +143,7 @@ const Sidebar = () => {
               )}
               {orderBadges.preparingCount > 0 && (
                 <span
-                  title={`${orderBadges.preparingCount} Kitchen / Preparing Orders`}
+                  title={`${orderBadges.preparingCount} Preparing Orders`}
                   style={{
                     background: 'rgba(59, 130, 246, 0.15)',
                     color: '#3b82f6',
