@@ -122,9 +122,17 @@ const Orders: React.FC = () => {
 
     const updateStatus = async (orderId: number, newStatus: string) => {
         try {
+            const updatePayload: Record<string, any> = { 
+                status: newStatus,
+                updated_at: new Date().toISOString()
+            };
+            if (newStatus === 'delivered') {
+                updatePayload.delivered_at = new Date().toISOString();
+            }
+
             const { error } = await supabase
                 .from('orders')
-                .update({ status: newStatus })
+                .update(updatePayload)
                 .eq('id', orderId);
 
             if (error) throw error;

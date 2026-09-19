@@ -37,4 +37,5 @@ If you already have a running database and need to bring it up to date with the 
 | [`p4_order_payment_fields.sql`](./migrations/p4_order_payment_fields.sql) | Extended order payment status, fees, discounts, and item snapshots |
 | [`p5_customer_addresses.sql`](./migrations/p5_customer_addresses.sql) | Multiple saved delivery addresses table (`customer_addresses`) |
 | [`p6_store_settings_extend.sql`](./migrations/p6_store_settings_extend.sql) | Store settings extensions (`is_open`, `delivery_radius_km`, operating hours) |
-| [`p7_rider_stats_and_profile_fixes.sql`](./migrations/p7_rider_stats_and_profile_fixes.sql) | **[LATEST]** `rider_daily_stats` (attendance/online hours), `profiles.must_change_password`, and ensures default `store_settings` row 1 |
+| [`p7_rider_stats_and_profile_fixes.sql`](./migrations/p7_rider_stats_and_profile_fixes.sql) | `rider_daily_stats` (attendance/online hours), `profiles.must_change_password`, and ensures default `store_settings` row 1 |
+| [`p8_store_closed_reason_and_cart_items.sql`](./migrations/p8_store_closed_reason_and_cart_items.sql) | **[LATEST]** Adds `store_settings.closed_reason` and persistent `cart_items` table with RLS |

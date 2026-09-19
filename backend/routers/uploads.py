@@ -102,14 +102,17 @@ async def delete_product_image(product_id: int, image_url: str):
 
     admin_supabase.from_("products").update(update_data).eq("id", product_id).execute()
 
-    # Try to delete from storage (best-effort, don't fail if not found)
+    # Try to delete from storage if it is an uploaded blob (best-effort, don't fail if external URL)
     try:
-        # Extract path from URL: everything after /storage/v1/object/public/{bucket}/
-        path_part = image_url.split(f"/{PRODUCT_BUCKET}/")
-        if len(path_part) > 1:
-            admin_supabase.storage.from_(PRODUCT_BUCKET).remove([path_part[1]])
-    except Exception:
-        pass  # Storage delete is best-effort
+        if f"/{PRODUCT_BUCKET}/" in image_url:
+            path_part = image_url.split(f"/{PRODUCT_BUCKET}/")[1]
+            # Strip query params or hash
+            storage_path = path_part.split("?")[0].split("#")[0]
+            if storage_path:
+                res = admin_supabase.storage.from_(PRODUCT_BUCKET).remove([storage_path])
+                print(f"Deleted from storage bucket '{PRODUCT_BUCKET}': {storage_path}, res: {res}")
+    except Exception as err:
+        print(f"Storage delete warning: {err}")
 
     return {"message": "Image removed", "remaining_images": current_images}
 

@@ -190,6 +190,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Future<void> _placeOrder() async {
+    // Check if store is open
+    final locProv = Provider.of<LocationProvider>(context, listen: false);
+    if (!locProv.isStoreOpen) {
+      _showError(
+        'Store is currently unavailable (${locProv.closedReason ?? "Closed for Now"}). Orders cannot be placed at this time.',
+      );
+      return;
+    }
+
     // Validate address
     if (!_useCurrentLocation && _selectedAddress == null) {
       _showError('Please select or add a delivery address.');
@@ -562,38 +571,71 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ],
         ),
       ),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-          child: SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _isPlacingOrder ? null : _placeOrder,
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-              ),
-              child: _isPlacingOrder
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2.5, color: Colors.white),
-                    )
-                  : Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text('Place Order',
-                            style: TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.w700)),
-                        const SizedBox(width: 8),
-                        Text('• ₹${grandTotal.toStringAsFixed(0)}',
-                            style: const TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.w800)),
-                      ],
+      bottomNavigationBar: Consumer<LocationProvider>(
+        builder: (context, locProv, _) {
+          final isClosed = !locProv.isStoreOpen;
+
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (isClosed)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFE4E6),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFFDA4AF)),
+                      ),
+                      child: Text(
+                        'Store is paused (${locProv.closedReason ?? "Closed for Now"}). Ordering is disabled.',
+                        style: const TextStyle(
+                          color: Color(0xFFBE123C),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: (_isPlacingOrder || isClosed) ? null : _placeOrder,
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: isClosed ? AppColors.textMuted : AppColors.primary,
+                      ),
+                      child: _isPlacingOrder
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2.5, color: Colors.white),
+                            )
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(isClosed ? 'Store Currently Unavailable' : 'Place Order',
+                                    style: const TextStyle(
+                                        fontSize: 16, fontWeight: FontWeight.w700)),
+                                if (!isClosed) ...[
+                                  const SizedBox(width: 8),
+                                  Text('• ₹${grandTotal.toStringAsFixed(0)}',
+                                      style: const TextStyle(
+                                          fontSize: 16, fontWeight: FontWeight.w800)),
+                                ],
+                              ],
+                            ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }

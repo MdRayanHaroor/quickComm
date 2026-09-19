@@ -18,21 +18,49 @@ class _LoginScreenState extends State<LoginScreen>
     with SingleTickerProviderStateMixin {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _nameController = TextEditingController();
+  final _phoneController = TextEditingController();
+  bool _userManuallyEditedName = false;
   bool _isLoading = false;
   bool _isSignUp = false;
   bool _obscurePassword = true;
   String? _errorMessage;
 
   @override
+  void initState() {
+    super.initState();
+    _emailController.addListener(_onEmailChanged);
+  }
+
+  void _onEmailChanged() {
+    if (!_isSignUp || _userManuallyEditedName) return;
+    final email = _emailController.text.trim();
+    if (email.contains('@')) {
+      final username = email.split('@').first;
+      final parts = username.split(RegExp(r'[._-]')).where((s) => s.isNotEmpty);
+      final derivedName = parts
+          .map((s) => s[0].toUpperCase() + (s.length > 1 ? s.substring(1).toLowerCase() : ''))
+          .join(' ');
+      if (derivedName.isNotEmpty && _nameController.text != derivedName) {
+        _nameController.text = derivedName;
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    _emailController.removeListener(_onEmailChanged);
     _emailController.dispose();
     _passwordController.dispose();
+    _nameController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
     if (_emailController.text.trim().isEmpty ||
-        _passwordController.text.isEmpty) {
+        _passwordController.text.isEmpty ||
+        (_isSignUp && _nameController.text.trim().isEmpty)) {
       setState(() => _errorMessage = 'Please fill in all fields.');
       return;
     }
@@ -44,7 +72,13 @@ class _LoginScreenState extends State<LoginScreen>
       final auth = Provider.of<AuthProvider>(context, listen: false);
       if (_isSignUp) {
         await auth.signUp(
-            _emailController.text.trim(), _passwordController.text);
+          _emailController.text.trim(),
+          _passwordController.text,
+          fullName: _nameController.text.trim(),
+          phoneNumber: _phoneController.text.trim().isNotEmpty
+              ? _phoneController.text.trim()
+              : null,
+        );
         if (!mounted) return;
         setState(() => _errorMessage = null);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -149,7 +183,7 @@ class _LoginScreenState extends State<LoginScreen>
                     Text(
                       'Groceries delivered in minutes',
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.75),
+                        color: Colors.white.withValues(alpha: 0.75),
                         fontSize: 14,
                         fontWeight: FontWeight.w400,
                       ),
@@ -204,8 +238,10 @@ class _LoginScreenState extends State<LoginScreen>
                           TextField(
                             controller: _passwordController,
                             obscureText: _obscurePassword,
-                            textInputAction: TextInputAction.done,
-                            onSubmitted: (_) => _submit(),
+                            textInputAction: _isSignUp ? TextInputAction.next : TextInputAction.done,
+                            onSubmitted: (_) {
+                              if (!_isSignUp) _submit();
+                            },
                             decoration: InputDecoration(
                               hintText: '••••••••',
                               prefixIcon: const Icon(Icons.lock_outline, size: 20),
@@ -222,6 +258,33 @@ class _LoginScreenState extends State<LoginScreen>
                               ),
                             ),
                           ).animate().fadeIn(delay: 150.ms, duration: 300.ms),
+                          if (_isSignUp) ...[
+                            const SizedBox(height: 16),
+                            _FieldLabel('Full Name'),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: _nameController,
+                              textInputAction: TextInputAction.next,
+                              onChanged: (_) => _userManuallyEditedName = true,
+                              decoration: const InputDecoration(
+                                hintText: 'e.g. Alex Smith',
+                                prefixIcon: Icon(Icons.person_outline, size: 20),
+                              ),
+                            ).animate().fadeIn(delay: 180.ms, duration: 300.ms),
+                            const SizedBox(height: 16),
+                            _FieldLabel('Phone Number'),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: _phoneController,
+                              keyboardType: TextInputType.phone,
+                              textInputAction: TextInputAction.done,
+                              onSubmitted: (_) => _submit(),
+                              decoration: const InputDecoration(
+                                hintText: 'e.g. +91 98765 43210',
+                                prefixIcon: Icon(Icons.phone_outlined, size: 20),
+                              ),
+                            ).animate().fadeIn(delay: 200.ms, duration: 300.ms),
+                          ],
                           const SizedBox(height: 20),
 
                           // ── Error message ──────────────────────
@@ -317,7 +380,7 @@ class _DecorativeCircle extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: Colors.white.withOpacity(opacity),
+        color: Colors.white.withValues(alpha: opacity),
       ),
     );
   }

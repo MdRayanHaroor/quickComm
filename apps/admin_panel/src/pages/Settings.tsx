@@ -10,8 +10,21 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { useTheme } from '../components/ThemeContext';
 import {
   FaStore, FaMapMarkerAlt, FaSearch, FaCheck, FaCreditCard,
-  FaTruck, FaShieldAlt, FaCrosshairs, FaCheckCircle, FaBan
+  FaTruck, FaShieldAlt, FaCrosshairs, FaCheckCircle, FaBan, FaTimes
 } from 'react-icons/fa';
+
+export const CLOSED_REASONS = [
+  'Weather Said Nope',
+  'Weather Went Wild',
+  'Orders Went Brrr',
+  'Restocking Mode',
+  'Opening Soon',
+  'Closed for Now',
+  'A Little Glitch',
+  'Store Taking a Pause',
+  'Running at Full Speed',
+  'Catching Our Breath',
+];
 
 // Custom Store Map Icon
 const createStoreIcon = () => {
@@ -91,6 +104,9 @@ export const Settings: React.FC = () => {
   const [storeName, setStoreName] = useState('QuickComm Supermarket');
   const [storeAddress, setStoreAddress] = useState('');
   const [isOpen, setIsOpen] = useState(true);
+  const [closedReason, setClosedReason] = useState('Closed for Now');
+  const [showReasonModal, setShowReasonModal] = useState(false);
+  const [selectedReasonForModal, setSelectedReasonForModal] = useState('Closed for Now');
 
   // Delivery Rules & Toggles
   const [useDeliveryRadius, setUseDeliveryRadius] = useState(true);
@@ -127,6 +143,7 @@ export const Settings: React.FC = () => {
           if (data.min_order_amount != null) setMinOrder(String(data.min_order_amount));
           if (data.delivery_fee_fixed != null) setDeliveryFee(String(data.delivery_fee_fixed));
           if (data.is_open != null) setIsOpen(Boolean(data.is_open));
+          if (data.closed_reason) setClosedReason(data.closed_reason);
 
           // Delivery radius toggle and value
           if (data.delivery_radius_km != null && Number(data.delivery_radius_km) > 0) {
@@ -263,6 +280,7 @@ export const Settings: React.FC = () => {
         min_order_amount: parseFloat(minOrder) || 99,
         delivery_fee_fixed: parseFloat(deliveryFee) || 20,
         is_open: isOpen,
+        closed_reason: closedReason,
         delivery_radius_km: useDeliveryRadius ? (parseFloat(deliveryRadius) || 5) : null,
         free_delivery_above: useFreeDelivery ? (parseFloat(freeDeliveryAbove) || 299) : null
       };
@@ -322,8 +340,8 @@ export const Settings: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Open / Closed Status Toggle */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {/* Open / Closed Status Toggle & Reason Dropdown */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                   <span style={{
                     fontSize: 12,
                     fontWeight: 700,
@@ -335,11 +353,56 @@ export const Settings: React.FC = () => {
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: isOpen ? 'var(--success)' : 'var(--danger)' }} />
                     {isOpen ? 'STORE OPEN' : 'STORE CLOSED'}
                   </span>
-                  <label className="toggle" title="Toggle Store Open/Closed">
+
+                  {!isOpen && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 11.5, color: 'var(--text-muted)', fontWeight: 600 }}>Reason:</span>
+                      <select
+                        value={closedReason}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setClosedReason(val);
+                          supabase.from('store_settings').update({ is_open: false, closed_reason: val }).eq('id', 1)
+                            .then(() => toast.success(`Closed reason updated: "${val}"`));
+                        }}
+                        style={{
+                          padding: '4px 10px',
+                          fontSize: 12,
+                          fontWeight: 700,
+                          borderRadius: 8,
+                          border: '1px solid var(--border-color)',
+                          background: 'var(--card-bg, #ffffff)',
+                          color: 'var(--text-primary)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {CLOSED_REASONS.map(r => (
+                          <option key={r} value={r}>{r}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <label
+                    className="toggle"
+                    title="Toggle Store Open/Closed"
+                    onClick={e => {
+                      e.preventDefault();
+                      if (isOpen) {
+                        setSelectedReasonForModal(closedReason || 'Closed for Now');
+                        setShowReasonModal(true);
+                      } else {
+                        setIsOpen(true);
+                        supabase.from('store_settings').update({ is_open: true, closed_reason: closedReason }).eq('id', 1)
+                          .then(() => toast.success('Store is now OPEN!'));
+                      }
+                    }}
+                    style={{ cursor: 'pointer' }}
+                  >
                     <input
                       type="checkbox"
                       checked={isOpen}
-                      onChange={e => setIsOpen(e.target.checked)}
+                      readOnly
                     />
                     <span className="toggle-slider" />
                   </label>
@@ -738,6 +801,132 @@ export const Settings: React.FC = () => {
           </form>
         </div>
       </div>
+
+      {/* Store Closed Reason Selection Modal */}
+      {showReasonModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.55)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: 16
+        }}>
+          <div style={{
+            background: 'var(--card-bg, #ffffff)',
+            borderRadius: 16,
+            padding: 24,
+            maxWidth: 440,
+            width: '100%',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.25)',
+            border: '1px solid var(--border-color)',
+            animation: 'fadeIn 0.2s ease-out'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 36,
+                  height: 36,
+                  borderRadius: '50%',
+                  background: 'rgba(239, 68, 68, 0.12)',
+                  color: 'var(--danger)'
+                }}>
+                  <FaBan size={18} />
+                </span>
+                <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: 'var(--text-primary)' }}>
+                  Close Store
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowReasonModal(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--text-muted)',
+                  fontSize: 16
+                }}
+              >
+                <FaTimes />
+              </button>
+            </div>
+
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 18, lineHeight: 1.5 }}>
+              Please select a reason for toggling the store offline. Customers will see this reason in the user app along with <strong>"Currently unavailable"</strong>.
+            </p>
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
+                Select Closed Reason <span style={{ color: 'var(--danger)' }}>*</span>
+              </label>
+              <select
+                value={selectedReasonForModal}
+                onChange={e => setSelectedReasonForModal(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: 10,
+                  border: '1.5px solid var(--border-color)',
+                  background: 'var(--surface-color, #f9fafb)',
+                  color: 'var(--text-primary)',
+                  fontSize: 14,
+                  fontWeight: 600,
+                  outline: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                {CLOSED_REASONS.map(r => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowReasonModal(false)}
+                style={{ padding: '8px 16px', borderRadius: 10 }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  setIsOpen(false);
+                  setClosedReason(selectedReasonForModal);
+                  setShowReasonModal(false);
+                  supabase.from('store_settings').update({
+                    is_open: false,
+                    closed_reason: selectedReasonForModal
+                  }).eq('id', 1).then(() => {
+                    toast.success(`Store CLOSED: "${selectedReasonForModal}"`);
+                  });
+                }}
+                style={{
+                  background: 'var(--danger)',
+                  color: '#ffffff',
+                  border: 'none',
+                  padding: '8px 18px',
+                  borderRadius: 10,
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+              >
+                Confirm &amp; Close Store
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

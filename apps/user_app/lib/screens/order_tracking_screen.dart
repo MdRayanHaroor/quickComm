@@ -2,11 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:http/http.dart' as http;
 import '../services/supabase_service.dart';
+import '../theme/app_colors.dart';
+import 'order_detail_screen.dart';
 
 class OrderTrackingScreen extends StatefulWidget {
   final int orderId;
@@ -27,6 +30,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
   RealtimeChannel? _riderLocationSubscription;
   RealtimeChannel? _orderUpdatesSubscription;
   Timer? _retryTimer;
+  Timer? _riderOnlinePollTimer;
   bool _isStreamError = false;
 
   // Configurable boolean to show/hide path
@@ -62,6 +66,43 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
 
   // Store location (for showing pickup point on map)
   LatLng? _storeLocation;
+
+  String? get _riderName {
+    final profile = _order?['profiles'];
+    if (profile is Map<String, dynamic> && profile['full_name'] != null) {
+      final name = profile['full_name'].toString().trim();
+      if (name.isNotEmpty) return name;
+    }
+    return null;
+  }
+
+  String? get _riderPhone {
+    final profile = _order?['profiles'];
+    if (profile is Map<String, dynamic> && profile['phone_number'] != null) {
+      final phone = profile['phone_number'].toString().trim();
+      if (phone.isNotEmpty) return phone;
+    }
+    return null;
+  }
+
+  Future<void> _fetchRiderProfile(String riderId) async {
+    try {
+      final p = await SupabaseService.client
+          .from('profiles')
+          .select('full_name, phone_number')
+          .eq('id', riderId)
+          .maybeSingle();
+      if (p != null && mounted) {
+        setState(() {
+          if (_order != null) {
+            _order!['profiles'] = p;
+          }
+        });
+      }
+    } catch (e) {
+      print('❌ Error fetching rider profile: $e');
+    }
+  }
 
   @override
   void initState() {
@@ -148,6 +189,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
       SupabaseService.client.removeChannel(_orderUpdatesSubscription!);
     }
     _retryTimer?.cancel();
+    _riderOnlinePollTimer?.cancel();
     _animationTimer?.cancel();
     _mapController.dispose();
     super.dispose();
@@ -175,6 +217,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
       });
 
       if (_order!['rider_id'] != null) {
+        if (_order!['profiles'] == null) {
+          _fetchRiderProfile(_order!['rider_id'].toString());
+        }
         _subscribeToRiderLocation(_order!['rider_id']);
       }
     } catch (e) {
@@ -216,10 +261,20 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
           ),
           callback: (payload) {
             if (!mounted) return;
-            final newRecord = payload.newRecord;
+            final newRecord = Map<String, dynamic>.from(payload.newRecord);
+            // Preserve existing joined profile if already loaded
+            if (_order?['profiles'] != null && newRecord['profiles'] == null) {
+              newRecord['profiles'] = _order!['profiles'];
+            }
             setState(() {
               _order = newRecord;
             });
+
+            // Fetch rider profile if assigned
+            final riderId = newRecord['rider_id']?.toString();
+            if (riderId != null && (_order?['profiles'] == null || newRecord['rider_id'] != _order?['rider_id'])) {
+              _fetchRiderProfile(riderId);
+            }
 
             // Capture the exact delivered_at from the realtime event for Time Taken calculation.
             // This is more reliable than reading it via a subsequent DB fetch.
@@ -244,6 +299,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
     }
 
     _retryTimer?.cancel();
+    _startRiderStatusPolling(riderId);
 
     print("📍 Starting Rider Location Subscription for $riderId");
 
@@ -357,6 +413,63 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
     _retryTimer = Timer(const Duration(seconds: 3), () {
       print("🔄 Retrying Rider Location Subscription...");
       _subscribeToRiderLocation(riderId);
+    });
+  }
+
+  void _startRiderStatusPolling(String riderId) {
+    _riderOnlinePollTimer?.cancel();
+    _riderOnlinePollTimer = Timer.periodic(const Duration(seconds: 4), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_order?['status'] == 'delivered') {
+        timer.cancel();
+        return;
+      }
+      try {
+        final locData = await SupabaseService.client
+            .from('rider_locations')
+            .select()
+            .eq('rider_id', riderId)
+            .maybeSingle();
+
+        if (locData != null && mounted) {
+          final wasOnline = _riderLocation != null && 
+              _riderLocation!['last_updated'] != null && 
+              _isRiderOnline(_riderLocation!['last_updated'].toString());
+          final isNowOnline = locData['last_updated'] != null && 
+              _isRiderOnline(locData['last_updated'].toString());
+
+          if (_riderLocation == null || (!wasOnline && isNowOnline)) {
+            final rawPos = LatLng(locData['lat'], locData['lng']);
+            final snappedPos = await _fetchNearestRoadPoint(rawPos);
+            if (!mounted) return;
+            setState(() {
+              _riderLocation = locData;
+              _riderAccuracy = (locData['accuracy'] as num?)?.toDouble();
+              _animatedRiderPosition = snappedPos;
+              _isStreamError = false;
+            });
+            _startMarkerAnimation(snappedPos);
+            _fetchRoute();
+          } else if (isNowOnline) {
+            final oldLat = _riderLocation?['lat'];
+            final oldLng = _riderLocation?['lng'];
+            if (oldLat != locData['lat'] || oldLng != locData['lng']) {
+              final rawPos = LatLng(locData['lat'], locData['lng']);
+              final snappedPos = await _fetchNearestRoadPoint(rawPos);
+              if (!mounted) return;
+              setState(() {
+                _riderLocation = locData;
+                _riderAccuracy = (locData['accuracy'] as num?)?.toDouble();
+              });
+              _startMarkerAnimation(snappedPos);
+              _fetchRoute();
+            }
+          }
+        }
+      } catch (_) {}
     });
   }
 
@@ -540,24 +653,146 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.of(context).pop(),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.receipt_long_rounded),
+            tooltip: 'View Full Order Details',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => OrderDetailScreen(orderId: widget.orderId),
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: Column(
         children: [
           // Status stepper
           if (status != 'delivered')
           Container(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
             color: Colors.white,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildStatusIcon('pending', Icons.receipt_long, "Placed"),
-                _buildStatusIcon('confirmed', Icons.kitchen, "Preparing"),
-                _buildStatusIcon('out_for_delivery', Icons.delivery_dining, "On Way"),
-                _buildStatusIcon('delivered', Icons.home_filled, "Delivered"),
+                Expanded(child: _buildStatusIcon('pending', Icons.receipt_long, "Placed")),
+                Expanded(child: _buildStatusIcon('confirmed', Icons.kitchen, "Preparing")),
+                Expanded(child: _buildStatusIcon('out_for_delivery', Icons.delivery_dining, "On Way")),
+                Expanded(child: _buildStatusIcon('delivered', Icons.home_filled, "Delivered")),
               ],
             ),
           ),
+
+          // Dedicated Rider Card Banner (when rider is assigned and order not yet delivered)
+          if ((status == 'out_for_delivery' || _order!['rider_id'] != null) && status != 'delivered')
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.delivery_dining_rounded,
+                        color: AppColors.primary, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _riderName != null
+                              ? '$_riderName is on the way'
+                              : 'Rider is on the way',
+                          style: const TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        if (_riderPhone != null && _riderPhone!.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Row(
+                            children: [
+                              const Icon(Icons.phone_outlined,
+                                  size: 13, color: AppColors.textSecondary),
+                              const SizedBox(width: 4),
+                              Text(
+                                _riderPhone!,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (_riderPhone != null && _riderPhone!.isNotEmpty)
+                    InkWell(
+                      onTap: () {
+                        Clipboard.setData(ClipboardData(text: _riderPhone!));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Copied ${_riderPhone!} to clipboard'),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.phone_rounded,
+                                color: AppColors.primary, size: 13),
+                            SizedBox(width: 4),
+                            Text(
+                              'Call',
+                              style: TextStyle(
+                                color: AppColors.primary,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
 
           if (_isStreamError && shouldShowMap)
             Container(
@@ -611,10 +846,29 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
                       const Icon(Icons.check_circle, color: Colors.green, size: 80),
                       const SizedBox(height: 20),
                       const Text("Order Delivered!", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 10),
-                      Text("Time Taken: ${_calculateTimeTaken()}", style: const TextStyle(fontSize: 16, color: Colors.grey)),
-                      const SizedBox(height: 30),
-                      const Text("Thank you for ordering with us.", style: TextStyle(fontSize: 16)),
+                      if (_calculateTimeTaken() != null) ...[
+                        const SizedBox(height: 10),
+                        Text("Time Taken: ${_calculateTimeTaken()!}", style: const TextStyle(fontSize: 16, color: Colors.grey)),
+                      ],
+                      const SizedBox(height: 24),
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => OrderDetailScreen(orderId: widget.orderId),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.receipt_long_rounded, size: 18),
+                        label: const Text('View Full Order Details'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text("Thank you for ordering with us.", style: TextStyle(fontSize: 15, color: Colors.black54)),
                     ],
                   ),
                 )
@@ -735,7 +989,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
                                                   Container(
                                                       color: Colors.white,
                                                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                                      child: const Text("Rider", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold))
+                                                      child: Text(_riderName ?? "Rider", style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
                                                   )
                                               ],
                                               ),
@@ -778,7 +1032,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
                     Text(
                       status == 'pending' ? 'Waiting for Confirmation...' :
                       status == 'confirmed' ? 'Order confirmed! Order is being prepared. Waiting for rider to be assigned.' :
-                      status == 'out_for_delivery' ? 'Rider is on the way!' :
+                      status == 'out_for_delivery' ? (_riderName != null ? '$_riderName is on the way!' : 'Rider is on the way!') :
                       'Order Delivered!',
                       style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                       textAlign: TextAlign.center,
@@ -835,48 +1089,99 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
   /// 1. _deliveredAt: captured from realtime event when status → 'delivered'
   /// 2. order['delivered_at']: stored in DB (set by delivery app on mark-delivered)
   /// 3. order['updated_at']: fallback (less accurate, reflects any field change)
-  String _calculateTimeTaken() {
+  String? _calculateTimeTaken() {
     try {
-      if (_order == null) return "N/A";
-      final created = DateTime.parse(_order!['created_at']);
+      if (_order == null) return null;
+      final createdStr = _order!['created_at']?.toString();
+      if (createdStr == null) return null;
+      final created = DateTime.parse(createdStr);
 
       DateTime? deliveredAt = _deliveredAt;
 
       // Try DB-stored delivered_at if realtime capture not available
       if (deliveredAt == null && _order!['delivered_at'] != null) {
         try {
-          deliveredAt = DateTime.parse(_order!['delivered_at']);
+          deliveredAt = DateTime.parse(_order!['delivered_at'].toString());
         } catch (_) {}
       }
 
-      // Final fallback to updated_at
-      deliveredAt ??= DateTime.parse(_order!['updated_at']);
+      // Final fallback to updated_at only if updated_at is distinctly after created_at
+      if (deliveredAt == null && _order!['updated_at'] != null) {
+        try {
+          final up = DateTime.parse(_order!['updated_at'].toString());
+          if (up.difference(created).inSeconds > 30) {
+            deliveredAt = up;
+          }
+        } catch (_) {}
+      }
+
+      if (deliveredAt == null) return null;
 
       final diff = deliveredAt.difference(created);
+      if (diff.inSeconds <= 0) return null;
       if (diff.inMinutes < 1) return "Less than a minute";
       return "${diff.inMinutes} min${diff.inMinutes == 1 ? '' : 's'}";
     } catch (e) {
-      return "N/A";
+      return null;
     }
   }
 
-  Widget _buildStatusIcon(String stepStatus, IconData icon, String label) {
+  Widget _buildStatusIcon(String stepStatus, IconData icon, String defaultLabel) {
     final currentStatus = _order!['status'];
     final steps = ['pending', 'confirmed', 'out_for_delivery', 'delivered'];
     final currentIndex = steps.indexOf(currentStatus);
     final stepIndex = steps.indexOf(stepStatus);
 
     final isActive = stepIndex <= currentIndex;
+    final isCurrent = currentStatus == stepStatus;
+
+    String label = defaultLabel;
+    String? phoneSubtitle;
+
+    if (stepStatus == 'out_for_delivery') {
+      if (_riderName != null) {
+        label = '$_riderName is on the way';
+      }
+      if (_riderPhone != null && (isActive || isCurrent)) {
+        phoneSubtitle = _riderPhone;
+      }
+    }
 
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         CircleAvatar(
-            backgroundColor: isActive ? Theme.of(context).primaryColor : Colors.grey[200],
-            radius: 20,
-            child: Icon(icon, color: isActive ? Colors.white : Colors.grey, size: 20),
+          backgroundColor: isActive ? Theme.of(context).primaryColor : Colors.grey[200],
+          radius: 18,
+          child: Icon(icon, color: isActive ? Colors.white : Colors.grey, size: 18),
         ),
         const SizedBox(height: 5),
-        Text(label, style: TextStyle(color: isActive ? Colors.black : Colors.grey, fontSize: 12, fontWeight: isActive ? FontWeight.bold : FontWeight.normal)),
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: isActive ? Colors.black : Colors.grey,
+            fontSize: 11,
+            fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+            height: 1.2,
+          ),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        if (phoneSubtitle != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            phoneSubtitle,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: isActive ? AppColors.primary : Colors.grey,
+              fontSize: 9.5,
+              fontWeight: FontWeight.w700,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
       ],
     );
   }

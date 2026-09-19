@@ -48,7 +48,7 @@ class DeliveryService {
       final response = await SupabaseService.client
           .from('store_settings')
           .select()
-          .eq('id', 1)
+          .limit(1)
           .maybeSingle();
 
       if (response != null) {
@@ -56,7 +56,7 @@ class DeliveryService {
         _cacheTimestamp = DateTime.now();
       }
       return _cachedSettings;
-    } catch (_) {
+    } catch (e) {
       return _cachedSettings;
     }
   }

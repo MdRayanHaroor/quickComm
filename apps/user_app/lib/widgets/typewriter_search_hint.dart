@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
@@ -43,9 +44,17 @@ class _TypewriterSearchHintState extends State<TypewriterSearchHint> {
     'Instant Noodles',
   ];
 
+  static String _capitalizeWords(String text) {
+    if (text.trim().isEmpty) return text;
+    return text.split(' ').map((word) {
+      if (word.isEmpty) return word;
+      return word[0].toUpperCase() + (word.length > 1 ? word.substring(1) : '');
+    }).join(' ');
+  }
+
   List<String> get _effectiveItems {
-    if (widget.items.isNotEmpty) return widget.items;
-    return _fallbackItems;
+    final rawList = widget.items.isNotEmpty ? widget.items : _fallbackItems;
+    return rawList.map(_capitalizeWords).toList();
   }
 
   @override
@@ -57,10 +66,14 @@ class _TypewriterSearchHintState extends State<TypewriterSearchHint> {
   @override
   void didUpdateWidget(covariant TypewriterSearchHint oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.items.length != oldWidget.items.length) {
-      if (_itemIndex >= _effectiveItems.length) {
-        _itemIndex = 0;
-      }
+    final itemsChanged = !listEquals(widget.items, oldWidget.items) ||
+        widget.prefix != oldWidget.prefix ||
+        widget.suffix != oldWidget.suffix;
+    if (itemsChanged) {
+      _itemIndex = 0;
+      _currentTypedText = '';
+      _isDeleting = false;
+      _startAnimation();
     }
   }
 
@@ -72,17 +85,29 @@ class _TypewriterSearchHintState extends State<TypewriterSearchHint> {
 
   void _startAnimation() {
     _timer?.cancel();
-    final items = _effectiveItems;
-    if (items.isEmpty) return;
+    if (!mounted) return;
 
-    final targetWord = items[_itemIndex % items.length];
+    final items = _effectiveItems;
+    if (items.isEmpty) {
+      if (_currentTypedText.isNotEmpty && mounted) {
+        setState(() => _currentTypedText = '');
+      }
+      return;
+    }
+
+    if (_itemIndex >= items.length) {
+      _itemIndex = 0;
+    }
+
+    final targetWord = items[_itemIndex];
 
     if (!_isDeleting) {
       // TYPING FORWARD
       if (_currentTypedText.length < targetWord.length) {
-        _currentTypedText =
-            targetWord.substring(0, _currentTypedText.length + 1);
-        setState(() {});
+        final nextLen =
+            (_currentTypedText.length + 1).clamp(0, targetWord.length);
+        _currentTypedText = targetWord.substring(0, nextLen);
+        if (mounted) setState(() {});
         _timer = Timer(widget.typingSpeed, _startAnimation);
       } else {
         // Finished typing word, pause so user can read it
@@ -92,15 +117,19 @@ class _TypewriterSearchHintState extends State<TypewriterSearchHint> {
     } else {
       // BACKSPACING / CLEARING OUT
       if (_currentTypedText.isNotEmpty) {
-        _currentTypedText =
-            _currentTypedText.substring(0, _currentTypedText.length - 1);
-        setState(() {});
+        if (_currentTypedText.length > targetWord.length) {
+          _currentTypedText = targetWord;
+        } else {
+          _currentTypedText =
+              _currentTypedText.substring(0, _currentTypedText.length - 1);
+        }
+        if (mounted) setState(() {});
         _timer = Timer(widget.backspaceSpeed, _startAnimation);
       } else {
-        // Completely cleared out, move to next item
+        // Completely cleared out, move to next item (loops seamlessly even if only 1 item)
         _isDeleting = false;
         _itemIndex = (_itemIndex + 1) % items.length;
-        _timer = Timer(const Duration(milliseconds: 180), _startAnimation);
+        _timer = Timer(const Duration(milliseconds: 250), _startAnimation);
       }
     }
   }

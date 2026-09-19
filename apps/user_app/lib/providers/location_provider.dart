@@ -1,12 +1,16 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/supabase_service.dart';
 import '../services/delivery_service.dart';
 
-class LocationProvider extends ChangeNotifier {
+class LocationProvider extends ChangeNotifier with WidgetsBindingObserver {
   Position? _currentPosition;
   bool _isLocationPermissionGranted = false;
   bool _isLoading = false;
+  RealtimeChannel? _storeSettingsChannel;
+  Timer? _periodicSyncTimer;
 
   List<Map<String, dynamic>> _savedAddresses = [];
   Map<String, dynamic>? _selectedAddress;
@@ -16,6 +20,8 @@ class LocationProvider extends ChangeNotifier {
 
   double? _storeLat;
   double? _storeLng;
+  bool _isStoreOpen = true;
+  String? _closedReason;
 
   Position? get currentPosition => _currentPosition;
   bool get isLocationPermissionGranted => _isLocationPermissionGranted;
@@ -24,6 +30,8 @@ class LocationProvider extends ChangeNotifier {
   Map<String, dynamic>? get selectedAddress => _selectedAddress;
   double? get distanceMeters => _distanceMeters;
   int get etaMinutes => _etaMinutes;
+  bool get isStoreOpen => _isStoreOpen;
+  String? get closedReason => _closedReason;
 
   /// Formatted distance: shows in meters if < 1 km, otherwise in km.
   String? get formattedDistance {
@@ -62,23 +70,54 @@ class LocationProvider extends ChangeNotifier {
   }
 
   LocationProvider() {
+    WidgetsBinding.instance.addObserver(this);
     init();
+    _startPeriodicSync();
+  }
+
+  void _startPeriodicSync() {
+    _periodicSyncTimer?.cancel();
+    _periodicSyncTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      _loadStoreCoordinates(forceRefresh: true);
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      debugPrint('📱 App resumed: refreshing store settings');
+      refreshStoreSettings();
+      _startPeriodicSync();
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      _periodicSyncTimer?.cancel();
+    }
   }
 
   Future<void> init() async {
     await _loadStoreCoordinates();
+    _subscribeToStoreSettings();
     await checkPermissionAndFetchLocation();
     await loadSavedAddresses();
   }
 
-  Future<void> _loadStoreCoordinates() async {
+  Future<void> _loadStoreCoordinates({bool forceRefresh = false}) async {
     try {
-      final settings = await DeliveryService.getStoreSettings();
+      final settings = await DeliveryService.getStoreSettings(forceRefresh: forceRefresh);
       if (settings != null) {
         _storeLat = (settings['lat'] as num?)?.toDouble();
         _storeLng = (settings['lng'] as num?)?.toDouble();
+        _isStoreOpen = settings['is_open'] as bool? ?? true;
+        _closedReason = settings['closed_reason']?.toString();
       }
+      notifyListeners();
     } catch (_) {}
+  }
+
+  Future<void> refreshStoreSettings() async {
+    if (_periodicSyncTimer == null || !_periodicSyncTimer!.isActive) {
+      _startPeriodicSync();
+    }
+    await _loadStoreCoordinates(forceRefresh: true);
   }
 
   Future<void> checkPermissionAndFetchLocation() async {
@@ -309,5 +348,50 @@ class LocationProvider extends ChangeNotifier {
       _distanceMeters = null;
       _etaMinutes = 12; // Standard fallback
     }
+  }
+
+  void _subscribeToStoreSettings() {
+    try {
+      if (_storeSettingsChannel != null) {
+        SupabaseService.client.removeChannel(_storeSettingsChannel!);
+      }
+      _storeSettingsChannel = SupabaseService.client
+          .channel('public:store_settings_feed')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'store_settings',
+            callback: (payload) {
+              debugPrint('⚡ Realtime store_settings change received: ${payload.newRecord}');
+              final newRecord = payload.newRecord;
+              if (newRecord.isNotEmpty) {
+                if (newRecord.containsKey('is_open')) {
+                  _isStoreOpen = newRecord['is_open'] as bool? ?? true;
+                }
+                if (newRecord.containsKey('closed_reason')) {
+                  _closedReason = newRecord['closed_reason']?.toString();
+                }
+                notifyListeners();
+              }
+            },
+          );
+      _storeSettingsChannel!.subscribe((status, [error]) {
+        debugPrint('⚡ store_settings realtime status: $status ${error ?? ""}');
+      });
+    } catch (e) {
+      debugPrint('Realtime store_settings error: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _periodicSyncTimer?.cancel();
+    if (_storeSettingsChannel != null) {
+      try {
+        SupabaseService.client.removeChannel(_storeSettingsChannel!);
+      } catch (_) {}
+    }
+    super.dispose();
   }
 }

@@ -6,6 +6,7 @@ import '../services/supabase_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import 'order_tracking_screen.dart';
+import 'order_detail_screen.dart';
 
 class OrderHistoryScreen extends StatefulWidget {
   const OrderHistoryScreen({super.key});
@@ -135,13 +136,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
       appBar: AppBar(
         title: const Text('Your Orders'),
         automaticallyImplyLeading: false,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded),
-            tooltip: 'Refresh orders',
-            onPressed: () => _fetchOrders(),
-          ),
-        ],
       ),
       body: RefreshIndicator(
         onRefresh: () => _fetchOrders(),
@@ -220,12 +214,25 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
       itemBuilder: (context, i) => _OrderCard(
         order: _orders[i],
         onTap: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => OrderTrackingScreen(orderId: _orders[i]['id']),
-            ),
-          );
+          final order = _orders[i];
+          final status = (order['status'] as String? ?? 'pending').toLowerCase();
+          final isActive = status != 'delivered' && status != 'cancelled';
+
+          if (isActive) {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => OrderTrackingScreen(orderId: order['id']),
+              ),
+            );
+          } else {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => OrderDetailScreen(orderId: order['id']),
+              ),
+            );
+          }
           _fetchOrders(silent: true);
         },
       ).animate().fadeIn(
@@ -249,12 +256,24 @@ class _OrderCard extends StatelessWidget {
     final total = order['total_amount'] ?? 0;
     final createdAt = order['created_at'] as String? ?? '';
 
-    final itemSummary = items.take(3).map((i) {
-      final name = i['products']?['name'] ?? 'Item';
-      final variantName = i['variant_name_snapshot'];
-      return variantName != null ? '$name ($variantName)' : name;
-    }).join(', ');
-    final moreCount = items.length > 3 ? ' +${items.length - 3} more' : '';
+    // Build title: First item + extra items count (e.g. "Red Bull Energy Drink +3 more items")
+    String orderTitle;
+    if (items.isNotEmpty) {
+      final firstItem = items.first;
+      final firstName = (firstItem['product_name_snapshot'] ??
+              firstItem['products']?['name'] ??
+              'Item')
+          .toString();
+      final variantName = firstItem['variant_name_snapshot']?.toString() ?? '';
+      final firstDisplayName =
+          variantName.isNotEmpty ? '$firstName ($variantName)' : firstName;
+      final extraCount = items.length - 1;
+      orderTitle = extraCount > 0
+          ? '$firstDisplayName +$extraCount more item${extraCount > 1 ? "s" : ""}'
+          : firstDisplayName;
+    } else {
+      orderTitle = 'Order #${order['id']}';
+    }
 
     final statusInfo = _statusInfo(status);
 
@@ -271,44 +290,60 @@ class _OrderCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Header row ──────────────────────────────────────
+            // ── Header row with item title & status chip ────────
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Order #${order['id']}', style: AppTheme.titleSm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        orderTitle,
+                        style: AppTheme.titleSm.copyWith(fontWeight: FontWeight.w700),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Order #${order['id']} • ${_formatDate(createdAt)}',
+                        style: AppTheme.captionSm.copyWith(color: AppColors.textSecondary),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
                 _StatusChip(status: status, info: statusInfo),
               ],
             ),
-            const SizedBox(height: 8),
-
-            // ── Item summary ────────────────────────────────────
-            Text(
-              itemSummary + moreCount,
-              style: AppTheme.bodyMd,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
             const SizedBox(height: 12),
 
-            // ── Footer row ──────────────────────────────────────
+            // ── Footer row: item count & price / action ─────────
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(_formatDate(createdAt), style: AppTheme.captionSm),
+                Text(
+                  '${items.length} ${items.length == 1 ? "item" : "items"}',
+                  style: AppTheme.captionSm.copyWith(color: AppColors.textMuted),
+                ),
                 Row(
                   children: [
                     Text(
                       '₹${total is num ? total.toStringAsFixed(0) : total}',
                       style: AppTheme.titleSm.copyWith(color: AppColors.primary),
                     ),
-                    if (status != 'delivered' && status != 'cancelled') ...[
-                      const SizedBox(width: 12),
-                      Text(
-                        'Track →',
-                        style: AppTheme.labelMd
-                            .copyWith(color: AppColors.primary),
+                    const SizedBox(width: 12),
+                    Text(
+                      status != 'delivered' && status != 'cancelled'
+                          ? 'Track →'
+                          : 'Details →',
+                      style: AppTheme.labelMd.copyWith(
+                        color: status != 'delivered' && status != 'cancelled'
+                            ? AppColors.primary
+                            : AppColors.textSecondary,
+                        fontWeight: FontWeight.w700,
                       ),
-                    ],
+                    ),
                   ],
                 ),
               ],

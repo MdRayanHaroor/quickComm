@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -13,9 +14,9 @@ import '../widgets/typewriter_search_hint.dart';
 import '../widgets/delivery_location_sheet.dart';
 import '../utils/category_icon_helper.dart';
 import 'category_screen.dart';
-import 'order_tracking_screen.dart';
 import 'login_screen.dart';
 import 'search_screen.dart';
+import 'account_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -36,6 +37,11 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _fetchCategories();
     _fetchProducts();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<AuthProvider>().fetchUserProfile();
+      }
+    });
   }
 
   Map<String, List<Map<String, dynamic>>> get _productsByCategory {
@@ -159,7 +165,11 @@ class _HomeScreenState extends State<HomeScreen> {
         child: RefreshIndicator(
           color: AppColors.primary,
           onRefresh: () async {
-            await Future.wait([_fetchCategories(), _fetchProducts()]);
+            await Future.wait([
+              _fetchCategories(),
+              _fetchProducts(),
+              context.read<LocationProvider>().refreshStoreSettings(),
+            ]);
           },
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
@@ -194,44 +204,84 @@ class _HomeScreenState extends State<HomeScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Row(
-                                    crossAxisAlignment: CrossAxisAlignment.center,
-                                    children: [
-                                      Text(
-                                        locProv.isLocationPermissionGranted
-                                            ? locProv.formattedEta
-                                            : 'DELIVER TO',
-                                        style: AppTheme.captionSm.copyWith(
-                                          fontWeight: FontWeight.w900,
-                                          color: AppColors.primary,
-                                          letterSpacing: 0.4,
-                                          fontSize: 16,
+                                  if (!locProv.isStoreOpen) ...[
+                                    Row(
+                                      crossAxisAlignment: CrossAxisAlignment.center,
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            locProv.closedReason ?? 'Closed for Now',
+                                            style: AppTheme.captionSm.copyWith(
+                                              fontWeight: FontWeight.w900,
+                                              color: AppColors.primary,
+                                              letterSpacing: 0.3,
+                                              fontSize: 16,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
                                         ),
-                                      ),
-                                      if (locProv.isLocationPermissionGranted &&
-                                          locProv.formattedDistance != null) ...[
                                         const SizedBox(width: 8),
                                         Container(
                                           padding: const EdgeInsets.symmetric(
                                               horizontal: 7, vertical: 2),
                                           decoration: BoxDecoration(
-                                            color: AppColors.surfaceVariant,
+                                            color: AppColors.primary.withValues(alpha: 0.08),
                                             borderRadius: BorderRadius.circular(6),
                                             border: Border.all(
-                                                color: AppColors.border, width: 1.0),
+                                                color: AppColors.primary.withValues(alpha: 0.22), width: 1.0),
                                           ),
                                           child: Text(
-                                            locProv.formattedDistance!,
+                                            'Currently unavailable',
                                             style: AppTheme.captionSm.copyWith(
-                                              fontSize: 12.5,
+                                              fontSize: 11.5,
                                               fontWeight: FontWeight.w700,
-                                              color: AppColors.textSecondary,
+                                              color: AppColors.primary,
                                             ),
                                           ),
                                         ),
                                       ],
-                                    ],
-                                  ),
+                                    ),
+                                  ] else ...[
+                                    Row(
+                                      crossAxisAlignment: CrossAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          locProv.isLocationPermissionGranted
+                                              ? 'Deliver in ${locProv.formattedEta}'
+                                              : 'DELIVER TO',
+                                          style: AppTheme.captionSm.copyWith(
+                                            fontWeight: FontWeight.w900,
+                                            color: AppColors.primary,
+                                            letterSpacing: 0.4,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                        if (locProv.isLocationPermissionGranted &&
+                                            locProv.formattedDistance != null) ...[
+                                          const SizedBox(width: 8),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 7, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: AppColors.surfaceVariant,
+                                              borderRadius: BorderRadius.circular(6),
+                                              border: Border.all(
+                                                  color: AppColors.border, width: 1.0),
+                                            ),
+                                            child: Text(
+                                              locProv.formattedDistance!,
+                                              style: AppTheme.captionSm.copyWith(
+                                                fontSize: 12.5,
+                                                fontWeight: FontWeight.w700,
+                                                color: AppColors.textSecondary,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ],
                                   const SizedBox(height: 1),
                                   Row(
                                     children: [
@@ -255,30 +305,51 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                           ),
-                          // Active order tracker FAB (if any)
-                          if (user != null) _ActiveOrderButton(userId: user.id),
-                          const SizedBox(width: 6),
+                          const SizedBox(width: 8),
                           // Profile icon
                           GestureDetector(
-                            onTap: () => _showProfileSheet(context, user),
+                            onTap: () {
+                              if (user == null) {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) => const LoginScreen()),
+                                );
+                              } else {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) => const AccountScreen()),
+                                );
+                              }
+                            },
                             child: CircleAvatar(
                               radius: 18,
                               backgroundColor: user != null
                                   ? AppColors.primary.withValues(alpha: 0.1)
                                   : AppColors.surfaceVariant,
-                              child: Text(
-                                user != null
-                                    ? (user.email?.substring(0, 1).toUpperCase() ??
-                                        '?')
-                                    : '?',
-                                style: TextStyle(
-                                  color: user != null
-                                      ? AppColors.primary
-                                      : AppColors.textMuted,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14,
-                                ),
-                              ),
+                              child: user == null
+                                  ? const Icon(
+                                      Icons.person_outline_rounded,
+                                      size: 20,
+                                      color: AppColors.textPrimary,
+                                    )
+                                  : Builder(
+                                      builder: (context) {
+                                        final inits = context.watch<AuthProvider>().initials;
+                                        final displayText = inits.isNotEmpty
+                                            ? inits
+                                            : (user.email?.substring(0, 1).toUpperCase() ?? '');
+                                        return Text(
+                                          displayText,
+                                          style: const TextStyle(
+                                            color: AppColors.primary,
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 13,
+                                          ),
+                                        );
+                                      },
+                                    ),
                             ),
                           ),
                         ],
@@ -435,6 +506,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                         builder: (_) => CategoryScreen(
                                           categoryId: catId,
                                           categoryName: catName,
+                                          initialProducts: categoryProducts,
                                         ),
                                       ),
                                     );
@@ -511,22 +583,6 @@ class _HomeScreenState extends State<HomeScreen> {
     ),
     );
   }
-
-  void _showProfileSheet(BuildContext context, dynamic user) {
-    if (user == null) {
-      Navigator.push(
-          context, MaterialPageRoute(builder: (_) => const LoginScreen()));
-      return;
-    }
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppTheme.radiusXl)),
-      ),
-      builder: (_) => _ProfileSheet(email: user.email ?? ''),
-    );
-  }
 }
 
 class _SearchBar extends StatelessWidget {
@@ -573,119 +629,6 @@ class _SearchBar extends StatelessWidget {
   }
 }
 
-// ── Active order button (shown in app bar if an order is in flight) ─
-class _ActiveOrderButton extends StatelessWidget {
-  final String userId;
-  const _ActiveOrderButton({required this.userId});
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder(
-      stream: SupabaseService.client
-          .from('orders')
-          .stream(primaryKey: ['id'])
-          .eq('user_id', userId)
-          .order('created_at', ascending: false)
-          .limit(1)
-          .map((m) => m),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData || (snapshot.data as List).isEmpty) {
-          return const SizedBox(width: 4);
-        }
-        final order = (snapshot.data as List)[0];
-        final status = order['status'];
-        if (status == 'delivered' || status == 'cancelled') {
-          return const SizedBox(width: 4);
-        }
-        return GestureDetector(
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => OrderTrackingScreen(orderId: order['id']),
-            ),
-          ),
-          child: Container(
-            margin: const EdgeInsets.only(right: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: AppColors.success,
-              borderRadius: BorderRadius.circular(AppTheme.radiusFull),
-            ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.delivery_dining_rounded,
-                    color: Colors.white, size: 14),
-                SizedBox(width: 4),
-                Text(
-                  'Track',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700),
-                ),
-              ],
-            ),
-          ).animate(onPlay: (c) => c.repeat(reverse: true))
-              .shimmer(duration: 2.seconds, color: Colors.white24),
-        );
-      },
-    );
-  }
-}
-
-// ── Profile sheet (quick access) ──────────────────────────────────
-class _ProfileSheet extends StatelessWidget {
-  final String email;
-  const _ProfileSheet({required this.email});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: AppColors.border,
-              borderRadius: BorderRadius.circular(AppTheme.radiusFull),
-            ),
-          ),
-          const SizedBox(height: 20),
-          CircleAvatar(
-            radius: 32,
-            backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-            child: Text(
-              email.substring(0, 1).toUpperCase(),
-              style: AppTheme.titleLg.copyWith(color: AppColors.primary),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(email, style: AppTheme.bodyLg),
-          const SizedBox(height: 24),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              icon: const Icon(Icons.logout_rounded, size: 18),
-              label: const Text('Logout'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.error,
-                side: const BorderSide(color: AppColors.error),
-              ),
-              onPressed: () async {
-                await SupabaseService.client.auth.signOut();
-                if (context.mounted) Navigator.pop(context);
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 // ── Category slider under search bar (Blinkit style with icons) ─────
 class _CategoryIconSlider extends StatelessWidget {

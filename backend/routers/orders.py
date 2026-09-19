@@ -79,9 +79,10 @@ def create_order(order: OrderCreate, user_id: str = Query(..., description="Supa
         if settings:
             # A. Check if store is open
             if settings.get("is_open") is False:
+                reason = settings.get("closed_reason") or "Closed for Now"
                 raise HTTPException(
                     status_code=400,
-                    detail="Store is currently closed for orders. Please try again during operating hours."
+                    detail=f"Store is currently unavailable ({reason}). Orders cannot be placed at this time."
                 )
 
             # B. Check delivery radius (if enabled)

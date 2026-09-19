@@ -178,49 +178,93 @@ class _CartBodyState extends State<_CartBody> {
         _BillCard(cart: cart, deliveryFee: _deliveryFee),
 
         // ── Checkout button ────────────────────────────────────
-        SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () {
-                  final user = SupabaseService.client.auth.currentUser;
-                  if (user == null) {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) =>
-                              const LoginScreen(returnToCheckout: true)),
-                    );
-                  } else {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) =>
-                              CheckoutScreen(deliveryFee: _deliveryFee)),
-                    );
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+        Consumer<LocationProvider>(
+          builder: (context, locProv, _) {
+            final isClosed = !locProv.isStoreOpen;
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text('Proceed to Checkout',
-                        style: TextStyle(fontSize: 16)),
-                    const SizedBox(width: 8),
-                    Text(
-                      '₹${grandTotal.toStringAsFixed(0)}',
-                      style: const TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.w800),
+                    if (isClosed)
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFE4E6),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFFDA4AF)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.info_outline_rounded, color: Color(0xFFBE123C), size: 20),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                '${locProv.closedReason ?? "Closed for Now"} • Currently unavailable for orders',
+                                style: const TextStyle(
+                                  color: Color(0xFFBE123C),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: isClosed
+                            ? null
+                            : () {
+                                final user = SupabaseService.client.auth.currentUser;
+                                if (user == null) {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                        builder: (_) =>
+                                            const LoginScreen(returnToCheckout: true)),
+                                  );
+                                } else {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                        builder: (_) =>
+                                            CheckoutScreen(deliveryFee: _deliveryFee)),
+                                  );
+                                }
+                              },
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          backgroundColor: isClosed ? AppColors.textMuted : AppColors.primary,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              isClosed ? 'Store Currently Unavailable' : 'Proceed to Checkout',
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                            ),
+                            if (!isClosed) ...[
+                              const SizedBox(width: 8),
+                              Text(
+                                '₹${grandTotal.toStringAsFixed(0)}',
+                                style: const TextStyle(
+                                    fontSize: 16, fontWeight: FontWeight.w800),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                     ),
                   ],
                 ),
               ),
-            ),
-          ),
+            );
+          },
         ),
       ],
     );

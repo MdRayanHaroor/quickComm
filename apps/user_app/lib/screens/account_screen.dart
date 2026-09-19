@@ -1,22 +1,130 @@
 import 'package:flutter/material.dart';
-import '../services/supabase_service.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import 'login_screen.dart';
+import 'order_history_screen.dart';
+import 'app_shell.dart';
+import '../widgets/delivery_location_sheet.dart';
+import '../providers/cart_provider.dart';
 import 'package:provider/provider.dart';
 
 /// Full account/profile tab — replaces the old modal bottom sheet
-class AccountScreen extends StatelessWidget {
+class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
 
   @override
+  State<AccountScreen> createState() => _AccountScreenState();
+}
+
+class _AccountScreenState extends State<AccountScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<AuthProvider>().fetchUserProfile();
+      }
+    });
+  }
+
+  Future<void> _confirmDeleteAccount(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.error.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.warning_amber_rounded, color: AppColors.error, size: 24),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Delete Account?',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to permanently delete your account?\n\nThis will permanently erase all your order history, saved addresses, cart items, and profile information.\n\nThis action cannot be undone.',
+          style: TextStyle(fontSize: 14, color: AppColors.textSecondary, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete Account', style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && context.mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(
+          child: CircularProgressIndicator(color: AppColors.error),
+        ),
+      );
+      try {
+        await context.read<AuthProvider>().deleteAccount();
+        if (context.mounted) {
+          context.read<CartProvider>().clearCart(syncToDb: false);
+          Navigator.pop(context); // close spinner
+          if (Navigator.canPop(context)) {
+            Navigator.pop(context); // close AccountScreen
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Your account and all associated data have been permanently deleted.'),
+              backgroundColor: AppColors.textPrimary,
+            ),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          Navigator.pop(context); // close spinner
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to delete account: $e'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final user = Provider.of<AuthProvider>(context).user;
+    final auth = Provider.of<AuthProvider>(context);
+    final user = auth.user;
 
     if (user == null) {
       return Scaffold(
         backgroundColor: AppColors.background,
+        appBar: AppBar(
+          title: const Text('Account'),
+          backgroundColor: AppColors.surface,
+        ),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -54,13 +162,16 @@ class AccountScreen extends StatelessWidget {
     }
 
     final email = user.email ?? '';
-    final initial = email.isNotEmpty ? email[0].toUpperCase() : '?';
+    final name = auth.fullName;
+    final phone = auth.phoneNumber;
+    final initials = auth.initials.isNotEmpty ? auth.initials : (email.isNotEmpty ? email[0].toUpperCase() : '?');
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: const Text('Account'),
-        automaticallyImplyLeading: false,
+        backgroundColor: AppColors.surface,
+        automaticallyImplyLeading: true,
       ),
       body: ListView(
         children: [
@@ -77,10 +188,13 @@ class AccountScreen extends StatelessWidget {
               children: [
                 CircleAvatar(
                   radius: 32,
-                  backgroundColor: AppColors.primary.withOpacity(0.12),
+                  backgroundColor: AppColors.primary.withValues(alpha: 0.12),
                   child: Text(
-                    initial,
-                    style: AppTheme.titleLg.copyWith(color: AppColors.primary),
+                    initials,
+                    style: AppTheme.titleLg.copyWith(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -88,9 +202,38 @@ class AccountScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(email, style: AppTheme.titleSm),
-                      const SizedBox(height: 4),
-                      Text('QuickComm Member', style: AppTheme.bodyMd),
+                      if (name != null && name.trim().isNotEmpty) ...[
+                        Text(
+                          name.trim(),
+                          style: AppTheme.titleMd.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          email,
+                          style: AppTheme.bodyMd.copyWith(
+                            color: AppColors.textSecondary,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ] else ...[
+                        Text(email, style: AppTheme.titleSm),
+                      ],
+                      if (phone != null && phone.trim().isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(Icons.phone_outlined, size: 14, color: AppColors.textSecondary),
+                            const SizedBox(width: 4),
+                            Text(
+                              phone.trim(),
+                              style: AppTheme.captionSm.copyWith(
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -105,7 +248,19 @@ class AccountScreen extends StatelessWidget {
               _MenuItem(
                 icon: Icons.receipt_long_rounded,
                 label: 'My Orders',
-                onTap: () {},
+                onTap: () {
+                  if (AppShell.activeShell != null) {
+                    AppShell.selectTab(2);
+                    if (Navigator.canPop(context)) {
+                      Navigator.pop(context);
+                    }
+                  } else {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const OrderHistoryScreen()),
+                    );
+                  }
+                },
               ),
             ],
           ),
@@ -116,7 +271,7 @@ class AccountScreen extends StatelessWidget {
               _MenuItem(
                 icon: Icons.location_on_rounded,
                 label: 'Saved Addresses',
-                onTap: () {},
+                onTap: () => DeliveryLocationSheet.show(context),
               ),
             ],
           ),
@@ -134,6 +289,13 @@ class AccountScreen extends StatelessWidget {
                 label: 'About QuickComm',
                 onTap: () {},
               ),
+              _MenuItem(
+                icon: Icons.delete_outline_rounded,
+                iconColor: AppColors.error,
+                label: 'Delete Account',
+                labelColor: AppColors.error,
+                onTap: () => _confirmDeleteAccount(context),
+              ),
             ],
           ),
 
@@ -149,7 +311,11 @@ class AccountScreen extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
               onPressed: () async {
-                await SupabaseService.client.auth.signOut();
+                context.read<CartProvider>().clearCart(syncToDb: false);
+                await context.read<AuthProvider>().signOut();
+                if (context.mounted && Navigator.canPop(context)) {
+                  Navigator.pop(context);
+                }
               },
             ),
           ),
@@ -205,28 +371,39 @@ class _MenuItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final Color? iconColor;
+  final Color? labelColor;
 
   const _MenuItem({
     required this.icon,
     required this.label,
     required this.onTap,
+    this.iconColor,
+    this.labelColor,
   });
 
   @override
   Widget build(BuildContext context) {
+    final effectiveColor = iconColor ?? AppColors.primary;
     return ListTile(
       leading: Container(
         width: 36,
         height: 36,
         decoration: BoxDecoration(
-          color: AppColors.primary.withOpacity(0.08),
+          color: effectiveColor.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(AppTheme.radiusSm),
         ),
-        child: Icon(icon, size: 18, color: AppColors.primary),
+        child: Icon(icon, size: 18, color: effectiveColor),
       ),
-      title: Text(label, style: AppTheme.bodyLg),
-      trailing: const Icon(Icons.chevron_right_rounded,
-          color: AppColors.textMuted, size: 20),
+      title: Text(
+        label,
+        style: AppTheme.bodyLg.copyWith(
+          color: labelColor ?? AppColors.textPrimary,
+          fontWeight: labelColor != null ? FontWeight.w600 : FontWeight.w500,
+        ),
+      ),
+      trailing: Icon(Icons.chevron_right_rounded,
+          color: labelColor ?? AppColors.textMuted, size: 20),
       onTap: onTap,
     );
   }

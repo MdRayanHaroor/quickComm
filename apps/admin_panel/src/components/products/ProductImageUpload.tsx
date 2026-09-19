@@ -1,8 +1,9 @@
 import { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { FaCloudUploadAlt, FaStar, FaTimes } from 'react-icons/fa';
+import { FaCloudUploadAlt, FaStar, FaTimes, FaLink } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 import api from '../../api';
+import { supabase } from '../../supabaseClient';
 
 interface Props {
   productId: number | null;
@@ -12,6 +13,7 @@ interface Props {
 
 const ProductImageUpload = ({ productId, images, onChange }: Props) => {
   const [uploading, setUploading] = useState(false);
+  const [urlInput, setUrlInput] = useState('');
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (!productId) {
@@ -49,14 +51,56 @@ const ProductImageUpload = ({ productId, images, onChange }: Props) => {
     multiple: true,
   });
 
-  const remove = async (url: string, idx: number) => {
-    if (productId && !url.startsWith('blob:')) {
-      try {
-        await api.delete(`/upload/product/${productId}/image`, { params: { image_url: url } });
-      } catch {
-        // Best effort
-      }
+  const handleAddUrl = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = urlInput.trim();
+    if (!trimmed) return;
+    if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+      toast.error('Please enter a valid HTTP/HTTPS image URL');
+      return;
     }
+    onChange([...images, trimmed]);
+    setUrlInput('');
+    toast.success('Image URL added');
+  };
+
+  const remove = async (url: string, idx: number) => {
+    const isBlobStorage = url.includes('/product-images/') || url.includes('/storage/v1/object/public/');
+    const confirmMessage = isBlobStorage
+      ? 'Are you sure you want to remove this image? This will permanently delete it from Supabase blob storage.'
+      : 'Are you sure you want to remove this image URL?';
+
+    if (!window.confirm(confirmMessage)) return;
+
+    if (isBlobStorage) {
+      if (productId && !url.startsWith('blob:')) {
+        try {
+          await api.delete(`/upload/product/${productId}/image`, { params: { image_url: url } });
+          toast.success('Image deleted from storage');
+        } catch (err: any) {
+          console.error('Failed to delete image via API, trying direct storage remove:', err);
+          try {
+            const pathPart = url.split('/product-images/')[1]?.split('?')[0];
+            if (pathPart) {
+              await supabase.storage.from('product-images').remove([pathPart]);
+              toast.success('Image deleted from storage');
+            }
+          } catch (_) {}
+        }
+      } else {
+        // Blob url uploaded before saving
+        try {
+          const pathPart = url.split('/product-images/')[1]?.split('?')[0];
+          if (pathPart) {
+            await supabase.storage.from('product-images').remove([pathPart]);
+            toast.success('Image deleted from storage');
+          }
+        } catch (_) {}
+      }
+    } else {
+      toast.success('Image removed');
+    }
+
     onChange(images.filter((_, i) => i !== idx));
   };
 
@@ -94,6 +138,48 @@ const ProductImageUpload = ({ productId, images, onChange }: Props) => {
         <div className="dropzone-hint">JPG, PNG, WebP · Max 5MB each · Multiple allowed</div>
       </div>
 
+      {/* Add via direct URL */}
+      <div style={{
+        display: 'flex',
+        gap: 8,
+        alignItems: 'center',
+        background: 'var(--surface-color, #f9fafb)',
+        padding: '8px 12px',
+        borderRadius: 10,
+        border: '1px solid var(--border-color)'
+      }}>
+        <FaLink style={{ color: 'var(--text-muted)', fontSize: 14 }} />
+        <input
+          type="url"
+          placeholder="Or paste an image web URL (https://...)"
+          value={urlInput}
+          onChange={e => setUrlInput(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleAddUrl();
+            }
+          }}
+          style={{
+            flex: 1,
+            border: 'none',
+            background: 'transparent',
+            fontSize: 13,
+            color: 'var(--text-primary)',
+            outline: 'none'
+          }}
+        />
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={() => handleAddUrl()}
+          disabled={!urlInput.trim()}
+          style={{ padding: '6px 14px', fontSize: 12, fontWeight: 700 }}
+        >
+          Add URL
+        </button>
+      </div>
+
       {/* Image previews */}
       {images.length > 0 && (
         <div>
@@ -106,7 +192,15 @@ const ProductImageUpload = ({ productId, images, onChange }: Props) => {
                 key={idx}
                 className={`image-preview-item ${idx === 0 ? 'primary-img' : ''}`}
               >
-                <img src={url} alt={`Product image ${idx + 1}`} />
+                <img
+                  src={url}
+                  alt={`Product image ${idx + 1}`}
+                  onError={(e) => {
+                    // Fallback for broken URLs
+                    (e.target as HTMLImageElement).src =
+                      'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="%23999" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>';
+                  }}
+                />
 
                 {/* Remove button */}
                 <button
