@@ -777,7 +777,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> with WidgetsB
                     const SizedBox(height: 20),
                     Text(
                       status == 'pending' ? 'Waiting for Confirmation...' :
-                      status == 'confirmed' ? 'Order confirmed! Food is being prepared. Waiting for rider to be assigned.' :
+                      status == 'confirmed' ? 'Order confirmed! Order is being prepared. Waiting for rider to be assigned.' :
                       status == 'out_for_delivery' ? 'Rider is on the way!' :
                       'Order Delivered!',
                       style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),

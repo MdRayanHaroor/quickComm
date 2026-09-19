@@ -1,131 +1,235 @@
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/supabase_service.dart';
+import '../services/delivery_service.dart';
 import '../providers/cart_provider.dart';
-import 'home_screen.dart';
+import '../providers/location_provider.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_theme.dart';
 import 'order_success_screen.dart';
 
 class CheckoutScreen extends StatefulWidget {
-  const CheckoutScreen({super.key});
+  final double? deliveryFee;
+  const CheckoutScreen({super.key, this.deliveryFee});
 
   @override
   State<CheckoutScreen> createState() => _CheckoutScreenState();
 }
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
-  final _addressController = TextEditingController();
-  final _nameController = TextEditingController();
-  final _phoneController = TextEditingController();
-  
-  bool _isLoading = false;
+  // Delivery address state
+  List<Map<String, dynamic>> _savedAddresses = [];
+  Map<String, dynamic>? _selectedAddress;
+  bool _loadingAddresses = true;
   bool _useCurrentLocation = false;
-  Position? _currentPosition;
-  
+  Position? _gpsPosition;
+
+  // Delivery fee state
+  double? _deliveryFee;
+
+  // Order state
+  bool _isPlacingOrder = false;
+  String _paymentMethod = 'cod'; // only cod for now
+
   @override
   void initState() {
     super.initState();
-    _fetchSavedData();
+    _deliveryFee = widget.deliveryFee;
+    _loadSavedAddresses();
+    if (_deliveryFee == null) {
+      _loadDeliveryFee();
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final locProv = Provider.of<LocationProvider>(context, listen: false);
+        if (locProv.currentPosition != null) {
+          setState(() => _gpsPosition = locProv.currentPosition);
+        }
+      }
+    });
   }
 
-  Future<void> _fetchSavedData() async {
+  Future<void> _loadDeliveryFee() async {
+    final cart = Provider.of<CartProvider>(context, listen: false);
+    final fee = await DeliveryService.getEffectiveDeliveryFee(cart.subtotal);
+    if (mounted) {
+      setState(() => _deliveryFee = fee);
+    }
+  }
+
+  Future<void> _loadSavedAddresses() async {
     final user = SupabaseService.client.auth.currentUser;
-    if (user != null) {
+    if (user == null) return;
+    try {
+      final response = await SupabaseService.client
+          .from('customer_addresses')
+          .select()
+          .eq('user_id', user.id)
+          .order('is_default', ascending: false);
+      debugPrint('📍 CheckoutScreen: Loaded ${response.length} addresses for user ${user.id}');
+      if (mounted) {
+        setState(() {
+          _savedAddresses = List<Map<String, dynamic>>.from(response);
+          if (_savedAddresses.isNotEmpty && _selectedAddress == null) {
+            _selectedAddress = _savedAddresses.firstWhere(
+              (a) => a['is_default'] == true,
+              orElse: () => _savedAddresses.first,
+            );
+          }
+          _loadingAddresses = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('⚠️ CheckoutScreen._loadSavedAddresses user_id query failed: $e. Trying fallback...');
       try {
         final response = await SupabaseService.client
-            .from('customers')
+            .from('customer_addresses')
             .select()
-            .eq('id', user.id)
-            .maybeSingle();
-        
-        if (response != null && mounted) {
+            .eq('customer_id', user.id)
+            .order('is_default', ascending: false);
+        if (mounted) {
           setState(() {
-            _addressController.text = response['address'] ?? '';
-            _nameController.text = response['full_name'] ?? '';
-            _phoneController.text = response['phone_number'] ?? '';
+            _savedAddresses = List<Map<String, dynamic>>.from(response);
+            if (_savedAddresses.isNotEmpty && _selectedAddress == null) {
+              _selectedAddress = _savedAddresses.first;
+            }
+            _loadingAddresses = false;
           });
         }
-      } catch (e) {
-         print("Error fetching profile: $e");
+      } catch (e2) {
+        debugPrint('❌ CheckoutScreen._loadSavedAddresses fallback error: $e2');
+        if (mounted) setState(() => _loadingAddresses = false);
       }
     }
   }
 
   Future<void> _getCurrentLocation() async {
-    setState(() => _isLoading = true);
     try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        throw 'Location services are disabled.';
+      final locProv = Provider.of<LocationProvider>(context, listen: false);
+      final ok = await locProv.requestLocationPermission();
+      if (!ok && !locProv.isLocationPermissionGranted) {
+        _showError('Location permission was not granted or location services disabled.');
+        return;
       }
-
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          throw 'Location permissions are denied';
-        }
+      if (locProv.currentPosition != null) {
+        setState(() => _gpsPosition = locProv.currentPosition);
+      } else {
+        final position = await Geolocator.getCurrentPosition();
+        setState(() => _gpsPosition = position);
       }
-      
-      if (permission == LocationPermission.deniedForever) {
-        throw 'Location permissions are permanently denied.';
-      }
-
-      Position position = await Geolocator.getCurrentPosition();
-      setState(() {
-        _currentPosition = position;
-        _isLoading = false;
-      });
-      
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Location fetched successfully!')));
     } catch (e) {
-      setState(() {
-        _useCurrentLocation = false;
-        _isLoading = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error getting location: $e')));
+      debugPrint('❌ CheckoutScreen._getCurrentLocation error: $e');
+      _showError('Could not get location: $e');
+    }
+  }
+
+  Future<void> _addNewAddress() async {
+    final labelCtrl = TextEditingController();
+    final lineCtrl = TextEditingController();
+    final result = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+            top: Radius.circular(AppTheme.radiusXl)),
+      ),
+      builder: (_) => _AddAddressSheet(
+        labelCtrl: labelCtrl,
+        lineCtrl: lineCtrl,
+      ),
+    );
+    if (result == true && mounted) {
+      final user = SupabaseService.client.auth.currentUser;
+      if (user == null) {
+        _showError('Please log in to save an address.');
+        return;
+      }
+      try {
+        final locProv = Provider.of<LocationProvider>(context, listen: false);
+        final lat = _gpsPosition?.latitude ?? locProv.currentPosition?.latitude;
+        final lng = _gpsPosition?.longitude ?? locProv.currentPosition?.longitude;
+        debugPrint('💾 CheckoutScreen: Saving address for user ${user.id} (lat: $lat, lng: $lng)');
+
+        final inserted = await SupabaseService.client
+            .from('customer_addresses')
+            .insert({
+              'user_id': user.id,
+              'label': labelCtrl.text.trim(),
+              'address_line1': lineCtrl.text.trim(),
+              'is_default': _savedAddresses.isEmpty,
+              if (lat != null) 'lat': lat,
+              if (lng != null) 'lng': lng,
+            })
+            .select()
+            .single();
+
+        debugPrint('✅ CheckoutScreen: Saved address id=${inserted['id']}');
+        await _loadSavedAddresses();
+        await locProv.loadSavedAddresses();
+
+        if (mounted) {
+          setState(() {
+            _selectedAddress = inserted;
+            _useCurrentLocation = false;
+          });
+          locProv.selectAddress(inserted);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Address saved successfully!'),
+              backgroundColor: AppColors.success,
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint('❌ CheckoutScreen._addNewAddress error: $e');
+        _showError('Could not save address: $e');
+      }
     }
   }
 
   Future<void> _placeOrder() async {
-    if (_addressController.text.isEmpty && !_useCurrentLocation) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter delivery address')));
+    // Validate address
+    if (!_useCurrentLocation && _selectedAddress == null) {
+      _showError('Please select or add a delivery address.');
       return;
     }
-
-    if (_useCurrentLocation && _currentPosition == null) {
-       await _getCurrentLocation();
-       if (_currentPosition == null) return; // Failed to get location
+    if (_useCurrentLocation && _gpsPosition == null) {
+      await _getCurrentLocation();
+      if (!mounted || _gpsPosition == null) return;
     }
 
-    setState(() => _isLoading = true);
+    if (!mounted) return;
+    setState(() => _isPlacingOrder = true);
     try {
       final user = SupabaseService.client.auth.currentUser;
-      if (user == null) throw "User not logged in";
+      if (user == null) throw 'Not logged in';
 
       final cart = Provider.of<CartProvider>(context, listen: false);
 
-      // 0. Ensure Customer Profile Exists
-      try {
-         await SupabaseService.client.from('customers').upsert({
-           'id': user.id,
-           'address': _addressController.text, // Save manual address as default
-           'full_name': _nameController.text.isNotEmpty ? _nameController.text : 'User',
-           'phone_number': _phoneController.text
-         });
-      } catch (e) {
-          print("Profile update warning: $e");
-      }
+      // Build delivery address string
+      final deliveryAddress = _useCurrentLocation
+          ? 'Lat: ${_gpsPosition!.latitude}, Lng: ${_gpsPosition!.longitude}'
+          : (_selectedAddress?['address_line1'] ?? _selectedAddress?['address_line'] ?? '');
 
-      // 1. Create Order
+      final feeToAdd = _deliveryFee ?? 0.0;
+
+      // 1. Create order
       final orderData = {
-            'user_id': user.id,
-            'total_amount': cart.totalAmount,
-            'delivery_address': _addressController.text.isNotEmpty ? _addressController.text : 'Lat: ${_currentPosition?.latitude}, Lng: ${_currentPosition?.longitude}',
-            'status': 'pending',
-            'delivery_lat': _useCurrentLocation ? _currentPosition?.latitude : null,
-            'delivery_lng': _useCurrentLocation ? _currentPosition?.longitude : null,
+        'user_id': user.id,
+        'total_amount': cart.subtotal + feeToAdd,
+        'delivery_address': deliveryAddress,
+        'status': 'pending',
+        'payment_method': _paymentMethod,
+        'payment_status': 'pending',
+        'delivery_fee': _deliveryFee,
+        'delivery_lat': _useCurrentLocation
+            ? _gpsPosition?.latitude
+            : (_selectedAddress?['lat'] as num?)?.toDouble(),
+        'delivery_lng': _useCurrentLocation
+            ? _gpsPosition?.longitude
+            : (_selectedAddress?['lng'] as num?)?.toDouble(),
       };
 
       final orderResponse = await SupabaseService.client
@@ -134,157 +238,501 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           .select()
           .single();
 
-      final orderId = orderResponse['id'];
+      final orderId = orderResponse['id'] as int;
 
-      // 2. Create Order Items
+      // 2. Create order items with variant_id and snapshots
       final orderItems = cart.items.map((item) => {
-        'order_id': orderId,
-        'product_id': item.product['id'],
-        'quantity': 1, 
-        'price_at_time': item.product['price']
-      }).toList();
+            'order_id': orderId,
+            'product_id': item.productId,
+            'variant_id': item.variantId,
+            'quantity': item.quantity,
+            'price_at_time': item.sellingPrice,
+            'mrp_at_time': item.mrp,
+            'product_name_snapshot': item.productName,
+            'variant_name_snapshot': item.variantName,
+            'discount_at_time': item.mrp - item.sellingPrice,
+          }).toList();
 
       await SupabaseService.client.from('order_items').insert(orderItems);
 
-      // 3. Clear Cart
+      // 3. Clear cart
       cart.clearCart();
 
       if (!mounted) return;
-      
-      // 4. Navigate to Success Screen
-      Navigator.pushAndRemoveUntil(
-          context, 
-          MaterialPageRoute(builder: (_) => OrderSuccessScreen(orderId: orderId)), 
-          (route) => false
-      );
 
+      final locProv = Provider.of<LocationProvider>(context, listen: false);
+      final estimatedEta = _useCurrentLocation ? locProv.etaMinutes : null;
+
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (_) => OrderSuccessScreen(
+            orderId: orderId,
+            estimatedEtaMinutes: estimatedEta,
+          ),
+        ),
+        (route) => false,
+      );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      _showError('Order failed: $e');
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _isPlacingOrder = false);
     }
+  }
+
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: AppColors.error,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final cart = Provider.of<CartProvider>(context);
-    
+    final feeToAdd = _deliveryFee ?? 0.0;
+    final grandTotal = cart.subtotal + feeToAdd;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Checkout')),
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: const Text('Checkout'),
+        backgroundColor: AppColors.surface,
+      ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(AppTheme.pagePadding),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Bill Summary
-             Container(
-               padding: const EdgeInsets.all(16),
-               decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
-               child: Column(
-                 crossAxisAlignment: CrossAxisAlignment.start,
-                 children: [
-                    const Text('Bill Details', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    const Divider(),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Item Total'),
-                        Text('₹${cart.totalAmount}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: const [
-                         Text('Delivery Fee'),
-                         Text('₹40', style: TextStyle(fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                    const Divider(),
-                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('To Pay', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                        Text('₹${cart.totalAmount + 40}', style: TextStyle(color: Theme.of(context).primaryColor, fontWeight: FontWeight.bold, fontSize: 20)),
-                      ],
-                    ),
-                 ],
-               ),
-             ),
-             const SizedBox(height: 20),
+            // ── Section: Delivery Address ───────────────────────
+            _SectionHeader('Delivery Address', Icons.location_on_rounded),
+            const SizedBox(height: 12),
 
-             // Address Section
-            const Text('Delivery Details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
-            
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'Full Name',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.person),
-              ),
-            ),
-             const SizedBox(height: 10),
-             TextField(
-              controller: _phoneController,
-              decoration: const InputDecoration(
-                labelText: 'Phone Number',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.phone),
-              ),
-              keyboardType: TextInputType.phone,
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _addressController,
-              decoration: const InputDecoration(
-                labelText: 'Address',
-                border: OutlineInputBorder(),
-                hintText: 'Enter your full address',
-                prefixIcon: Icon(Icons.home),
-                suffixIcon: Icon(Icons.location_on),
-              ),
-              maxLines: 2,
-              enabled: !_useCurrentLocation, // Disable text input if using GPS
-            ),
-            
-            CheckboxListTile(
-              title: const Text("Use Current Location"),
-              value: _useCurrentLocation,
-              activeColor: Theme.of(context).primaryColor,
-              onChanged: (bool? value) {
+            // GPS toggle
+            _OptionCard(
+              selected: _useCurrentLocation,
+              onTap: () async {
                 setState(() {
-                  _useCurrentLocation = value ?? false;
+                  _useCurrentLocation = !_useCurrentLocation;
+                  if (_useCurrentLocation) _selectedAddress = null;
                 });
-                if (_useCurrentLocation && _currentPosition == null) {
-                  _getCurrentLocation();
+                if (_useCurrentLocation) {
+                  final locProv =
+                      Provider.of<LocationProvider>(context, listen: false);
+                  locProv.useCurrentGpsLocation();
+                  await _getCurrentLocation();
                 }
               },
+              child: Consumer<LocationProvider>(
+                builder: (context, locProv, _) {
+                  return Row(
+                    children: [
+                      Icon(
+                        Icons.my_location_rounded,
+                        color: _useCurrentLocation
+                            ? AppColors.primary
+                            : AppColors.textMuted,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Use Current Location',
+                                style: AppTheme.titleSm),
+                            if (_useCurrentLocation) ...[
+                              const SizedBox(height: 4),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    locProv.formattedEta,
+                                    style: AppTheme.captionSm.copyWith(
+                                      fontWeight: FontWeight.w900,
+                                      color: AppColors.primary,
+                                      letterSpacing: 0.4,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  if (locProv.formattedDistance != null) ...[
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.surfaceVariant,
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(
+                                            color: AppColors.border,
+                                            width: 1.0),
+                                      ),
+                                      child: Text(
+                                        locProv.formattedDistance!,
+                                        style: AppTheme.captionSm.copyWith(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                          color: AppColors.textSecondary,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            // Saved addresses
+            if (_loadingAddresses)
+              const Center(child: CircularProgressIndicator())
+            else ...[
+              ..._savedAddresses.map((addr) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _OptionCard(
+                      selected: !_useCurrentLocation &&
+                          _selectedAddress?['id'] == addr['id'],
+                      onTap: () {
+                        setState(() {
+                          _selectedAddress = addr;
+                          _useCurrentLocation = false;
+                        });
+                        final locProv = Provider.of<LocationProvider>(context,
+                            listen: false);
+                        locProv.selectAddress(addr);
+                      },
+                      child: Row(
+                        children: [
+                          Icon(
+                            addr['label'] == 'Home'
+                                ? Icons.home_rounded
+                                : addr['label'] == 'Office'
+                                    ? Icons.work_rounded
+                                    : Icons.location_on_rounded,
+                            color: !_useCurrentLocation &&
+                                    _selectedAddress?['id'] == addr['id']
+                                ? AppColors.primary
+                                : AppColors.textMuted,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(addr['label'] ?? 'Address',
+                                    style: AppTheme.titleSm),
+                                Text(
+                                    addr['address_line1'] ??
+                                        addr['address_line'] ??
+                                        '',
+                                    style: AppTheme.bodyMd,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )),
+              TextButton.icon(
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: const Text('Add New Address'),
+                onPressed: _addNewAddress,
+              ),
+            ],
+
+            const SizedBox(height: 20),
+
+            // ── Section: Payment ────────────────────────────────
+            _SectionHeader('Payment Method', Icons.payment_rounded),
+            const SizedBox(height: 12),
+
+            _OptionCard(
+              selected: _paymentMethod == 'cod',
+              onTap: () => setState(() => _paymentMethod = 'cod'),
+              child: Row(
+                children: [
+                  const Icon(Icons.money_rounded,
+                      color: AppColors.success, size: 20),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Cash on Delivery', style: AppTheme.titleSm),
+                      Text('Pay when delivered', style: AppTheme.captionSm),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            _OptionCard(
+              selected: false,
+              enabled: false,
+              onTap: null,
+              child: Row(
+                children: [
+                  const Icon(Icons.credit_card_rounded,
+                      color: AppColors.textMuted, size: 20),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Online Payment',
+                          style: AppTheme.titleSm
+                              .copyWith(color: AppColors.textMuted)),
+                      Text('Coming soon',
+                          style: AppTheme.captionSm),
+                    ],
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceVariant,
+                      borderRadius:
+                          BorderRadius.circular(AppTheme.radiusFull),
+                    ),
+                    child: Text('Soon',
+                        style:
+                            AppTheme.captionSm.copyWith(color: AppColors.textMuted)),
+                  ),
+                ],
+              ),
             ),
 
             const SizedBox(height: 20),
-            
-            const Text('Payment Method', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Card(
-              child: ListTile(
-                title: const Text('Cash on Delivery'),
-                leading: const Icon(Icons.money, color: Colors.green),
-                trailing: Radio(value: true, groupValue: true, onChanged: (_) {}),
+
+            // ── Section: Bill Summary ───────────────────────────
+            _SectionHeader('Bill Summary', Icons.receipt_outlined),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+                border: Border.all(color: AppColors.border, width: 0.5),
+              ),
+              child: Column(
+                children: [
+                  _BillRow('Item Total (${cart.itemCount} items)',
+                      '₹${cart.subtotal.toStringAsFixed(0)}'),
+                  if (_deliveryFee != null) ...[
+                    const SizedBox(height: 8),
+                    _BillRow(
+                      'Delivery Fee',
+                      _deliveryFee == 0
+                          ? 'FREE'
+                          : '₹${_deliveryFee!.toStringAsFixed(0)}',
+                      valueColor: _deliveryFee == 0 ? AppColors.success : null,
+                    ),
+                  ],
+                  if (cart.totalSavings > 0) ...[
+                    const SizedBox(height: 8),
+                    _BillRow(
+                      'Total Savings',
+                      '-₹${cart.totalSavings.toStringAsFixed(0)}',
+                      valueColor: AppColors.success,
+                    ),
+                  ],
+                  const Divider(height: 20),
+                  _BillRow(
+                    'Grand Total',
+                    '₹${grandTotal.toStringAsFixed(0)}',
+                    bold: true,
+                  ),
+                ],
               ),
             ),
+
+            const SizedBox(height: 24),
           ],
         ),
       ),
       bottomNavigationBar: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: ElevatedButton(
-            onPressed: _isLoading ? null : _placeOrder,
-            style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
-            child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text('PLACE ORDER', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _isPlacingOrder ? null : _placeOrder,
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
+              child: _isPlacingOrder
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2.5, color: Colors.white),
+                    )
+                  : Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text('Place Order',
+                            style: TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.w700)),
+                        const SizedBox(width: 8),
+                        Text('• ₹${grandTotal.toStringAsFixed(0)}',
+                            style: const TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.w800)),
+                      ],
+                    ),
+            ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  const _SectionHeader(this.title, this.icon);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: AppColors.primary),
+        const SizedBox(width: 8),
+        Text(title, style: AppTheme.titleMd),
+      ],
+    );
+  }
+}
+
+class _OptionCard extends StatelessWidget {
+  final bool selected;
+  final bool enabled;
+  final VoidCallback? onTap;
+  final Widget child;
+
+  const _OptionCard({
+    required this.selected,
+    required this.onTap,
+    required this.child,
+    this.enabled = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: selected
+              ? AppColors.primary.withValues(alpha: 0.05)
+              : AppColors.surface,
+          borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+          border: Border.all(
+            color: selected ? AppColors.primary : AppColors.border,
+            width: selected ? 1.5 : 0.8,
+          ),
+        ),
+        child: Opacity(opacity: enabled ? 1.0 : 0.5, child: child),
+      ),
+    );
+  }
+}
+
+class _BillRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool bold;
+  final Color? valueColor;
+
+  const _BillRow(this.label, this.value, {this.bold = false, this.valueColor});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: bold ? AppTheme.titleSm : AppTheme.bodyMd),
+        Text(
+          value,
+          style: AppTheme.titleSm.copyWith(
+            fontSize: bold ? 16 : 14,
+            color: valueColor,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Add New Address bottom sheet ──────────────────────────────────
+class _AddAddressSheet extends StatelessWidget {
+  final TextEditingController labelCtrl;
+  final TextEditingController lineCtrl;
+
+  const _AddAddressSheet(
+      {required this.labelCtrl, required this.lineCtrl});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 24,
+        right: 24,
+        top: 24,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Add New Address', style: AppTheme.titleMd),
+          const SizedBox(height: 20),
+          TextField(
+            controller: labelCtrl,
+            decoration: const InputDecoration(
+              hintText: 'Label (Home, Office, Other)',
+              prefixIcon: Icon(Icons.label_outline, size: 20),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: lineCtrl,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              hintText: 'Full address (door, street, city)',
+              prefixIcon: Icon(Icons.home_outlined, size: 20),
+            ),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () {
+                if (labelCtrl.text.trim().isNotEmpty &&
+                    lineCtrl.text.trim().isNotEmpty) {
+                  Navigator.pop(context, true);
+                }
+              },
+              child: const Text('Save Address'),
+            ),
+          ),
+        ],
       ),
     );
   }

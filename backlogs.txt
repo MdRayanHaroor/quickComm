@@ -1,0 +1,20 @@
+after completion of existing plans
+
+user app - 
+cant save address (FIXED: column schema user_id & address_line1 matched to migrations, with logs & sync)
+show past orders in search page
+add a View order dock like view cart dock with estimated delivery time and distance based on rider distance
+show the rider assigned in user app - "Umar is on its way" - "On way" step
+
+admin panel - 
+while adding product - 
+product image - must accpet url as well and apply everywhere even in mobile apps
+Category and sub category dropdown must accept text also as a new option
+
+what does accept and prepare buttons does (DOCUMENTED: updates status to confirmed)
+add cancel button with confirmation (FIXED: added cancel with prompt across pending, preparing, out_for_delivery)
+change rider assigned (FIXED: reassignable across pending, preparing, out_for_delivery + instant rider app sync) 
+
+wishlist a product - save in db like cart and order
+
+ad management - add/delete/update - inactive/active a certain add or whole section itself then app shouldn't show the section based on this

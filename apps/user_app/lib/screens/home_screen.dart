@@ -1,13 +1,21 @@
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import '../services/supabase_service.dart';
-import '../providers/cart_provider.dart';
 import '../providers/auth_provider.dart';
-import 'cart_screen.dart';
-import 'login_screen.dart';
+import '../providers/location_provider.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_theme.dart';
+import '../widgets/skeleton_loader.dart';
+import '../widgets/ad_banner.dart';
+import '../widgets/product_card.dart';
+import '../widgets/typewriter_search_hint.dart';
+import '../widgets/delivery_location_sheet.dart';
+import '../utils/category_icon_helper.dart';
+import 'category_screen.dart';
 import 'order_tracking_screen.dart';
-import 'order_history_screen.dart';
+import 'login_screen.dart';
+import 'search_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -18,357 +26,789 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   List<dynamic> _products = [];
-  bool _isLoading = true;
+  List<dynamic> _categories = [];
+  bool _isLoadingProducts = true;
+  bool _isLoadingCategories = true;
+  String? _selectedCategoryId; // null = 'All'
 
   @override
   void initState() {
     super.initState();
+    _fetchCategories();
     _fetchProducts();
   }
 
-  Future<void> _fetchProducts() async {
-    final response = await SupabaseService.client.from('products').select();
-    if (mounted) {
-      setState(() {
-        _products = response;
-        _isLoading = false;
+  Map<String, List<Map<String, dynamic>>> get _productsByCategory {
+    final Map<String, List<Map<String, dynamic>>> map = {};
+    for (final p in _products) {
+      final productMap = p as Map<String, dynamic>;
+      final catId = productMap['category_id']?.toString() ?? 'other';
+      map.putIfAbsent(catId, () => []).add(productMap);
+    }
+    return map;
+  }
+
+  List<Map<String, dynamic>> get _displayCategories {
+    final prodMap = _productsByCategory;
+    // ONLY show categories that have at least 1 product
+    final available = _categories
+        .map((c) => c as Map<String, dynamic>)
+        .where((cat) {
+          final catId = cat['id']?.toString() ?? '';
+          final prods = prodMap[catId];
+          return prods != null && prods.isNotEmpty;
+        })
+        .toList()
+      ..sort((a, b) {
+        final nameA = (a['name'] ?? '').toString().trim().toLowerCase();
+        final nameB = (b['name'] ?? '').toString().trim().toLowerCase();
+        if (nameA == 'others' || nameA == 'other') return 1;
+        if (nameB == 'others' || nameB == 'other') return -1;
+        return nameA.compareTo(nameB);
       });
+
+    if (_selectedCategoryId != null) {
+      final filtered = available
+          .where((cat) => cat['id']?.toString() == _selectedCategoryId)
+          .toList();
+      if (filtered.isNotEmpty) return filtered;
+    }
+    return available;
+  }
+
+  List<String> get _searchHintCombo {
+    final catNames = _categories
+        .map((c) => c['name']?.toString() ?? '')
+        .where((s) => s.isNotEmpty)
+        .toList();
+    final prodNames = _products
+        .map((p) => p['name']?.toString() ?? '')
+        .where((s) => s.isNotEmpty)
+        .toList();
+    final combo = [...catNames, ...prodNames];
+    if (combo.isNotEmpty) {
+      combo.shuffle();
+    }
+    return combo;
+  }
+
+  Future<void> _fetchCategories() async {
+    try {
+      // Try the backend API first, fallback to Supabase direct
+      final response = await SupabaseService.client
+          .from('categories')
+          .select()
+          .eq('is_active', true)
+          .order('name');
+      if (mounted) {
+        final list = List<dynamic>.from(response)
+          ..sort((a, b) {
+            final nameA =
+                (a is Map ? a['name'] : '')?.toString().trim().toLowerCase() ?? '';
+            final nameB =
+                (b is Map ? b['name'] : '')?.toString().trim().toLowerCase() ?? '';
+            if (nameA == 'others' || nameA == 'other') return 1;
+            if (nameB == 'others' || nameB == 'other') return -1;
+            return nameA.compareTo(nameB);
+          });
+        setState(() {
+          _categories = list;
+          _isLoadingCategories = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingCategories = false);
+    }
+  }
+
+  Future<void> _fetchProducts({String? categoryId}) async {
+    setState(() => _isLoadingProducts = true);
+    try {
+      var query = SupabaseService.client
+          .from('products')
+          .select('*, product_variants(*)')
+          .eq('is_available', true);
+
+      if (categoryId != null) {
+        query = query.eq('category_id', categoryId);
+      }
+
+      final response = await query.order('name').limit(40);
+
+      if (mounted) {
+        final list = List<dynamic>.from(response);
+        list.shuffle(); // Random order combo discovery
+        setState(() {
+          _products = list;
+          _isLoadingProducts = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingProducts = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // We access user strictly to show Login button or Avatar, and active orders
     final user = Provider.of<AuthProvider>(context).user;
-    final cart = Provider.of<CartProvider>(context);
 
     return Scaffold(
-      backgroundColor: Colors.grey[50],
-      body: CustomScrollView(
-        slivers: [
-          // 1. App Bar with Location & Profile
-          SliverAppBar(
-            pinned: true,
-            floating: true,
-            backgroundColor: Colors.white,
-            elevation: 0,
-            title: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.location_on, color: Theme.of(context).primaryColor, size: 18),
-                    const SizedBox(width: 4),
-                    const Text('Delivering to', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                  ],
-                ),
-                const Row(
-                  children: [
-                     Text('Current Location', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black)),
-                     Icon(Icons.keyboard_arrow_down, color: Colors.black),
-                  ],
-                ),
-              ],
-            ),
-            actions: [
-               IconButton(
-                icon: CircleAvatar(
-                  backgroundColor: Colors.grey[200],
-                  child: Icon(Icons.person, color: user != null ? Theme.of(context).primaryColor : Colors.grey),
-                ),
-                onPressed: () {
-                  if (user == null) {
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
-                  } else {
-                    // Profile or Logout sheet
-                       showModalBottomSheet(context: context, builder: (_) => Container(
-                      height: 250, // Increased height
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        bottom: false,
+        child: RefreshIndicator(
+          color: AppColors.primary,
+          onRefresh: () async {
+            await Future.wait([_fetchCategories(), _fetchProducts()]);
+          },
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              // ── Top Section: Distance, Address Info & Profile (Scrolls Away) ──
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+                  child: Consumer<LocationProvider>(
+                    builder: (context, locProv, _) {
+                      return Row(
                         children: [
-                           Text('Logged in as ${user.email}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                           const SizedBox(height: 20),
-                           ListTile(
-                             leading: const Icon(Icons.history),
-                             title: const Text("Your Orders"),
-                             onTap: () {
-                               Navigator.pop(context);
-                               Navigator.push(context, MaterialPageRoute(builder: (_) => const OrderHistoryScreen()));
-                             },
-                           ),
-                           const Spacer(),
-                           ElevatedButton(
-                             onPressed: () async {
-                               await SupabaseService.client.auth.signOut();
-                               if (mounted) Navigator.pop(context);
-                             },
-                             style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-                             child: const Text('Logout'),
-                           )
+                          // GestureDetector(
+                          //   onTap: () => DeliveryLocationSheet.show(context),
+                          //   behavior: HitTestBehavior.opaque,
+                          //   child: Container(
+                          //     padding: const EdgeInsets.all(7),
+                          //     decoration: BoxDecoration(
+                          //       color: AppColors.primary.withValues(alpha: 0.12),
+                          //       shape: BoxShape.circle,
+                          //     ),
+                          //     child: const Icon(Icons.location_on_rounded,
+                          //         color: AppColors.primary, size: 20),
+                          //   ),
+                          // ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => DeliveryLocationSheet.show(context),
+                              behavior: HitTestBehavior.opaque,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        locProv.isLocationPermissionGranted
+                                            ? locProv.formattedEta
+                                            : 'DELIVER TO',
+                                        style: AppTheme.captionSm.copyWith(
+                                          fontWeight: FontWeight.w900,
+                                          color: AppColors.primary,
+                                          letterSpacing: 0.4,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                      if (locProv.isLocationPermissionGranted &&
+                                          locProv.formattedDistance != null) ...[
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 7, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.surfaceVariant,
+                                            borderRadius: BorderRadius.circular(6),
+                                            border: Border.all(
+                                                color: AppColors.border, width: 1.0),
+                                          ),
+                                          child: Text(
+                                            locProv.formattedDistance!,
+                                            style: AppTheme.captionSm.copyWith(
+                                              fontSize: 12.5,
+                                              fontWeight: FontWeight.w700,
+                                              color: AppColors.textSecondary,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                  const SizedBox(height: 1),
+                                  Row(
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          locProv.displayAddressLabel,
+                                          style: AppTheme.titleSm.copyWith(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 2),
+                                      const Icon(Icons.keyboard_arrow_down_rounded,
+                                          size: 16, color: AppColors.textPrimary),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          // Active order tracker FAB (if any)
+                          if (user != null) _ActiveOrderButton(userId: user.id),
+                          const SizedBox(width: 6),
+                          // Profile icon
+                          GestureDetector(
+                            onTap: () => _showProfileSheet(context, user),
+                            child: CircleAvatar(
+                              radius: 18,
+                              backgroundColor: user != null
+                                  ? AppColors.primary.withValues(alpha: 0.1)
+                                  : AppColors.surfaceVariant,
+                              child: Text(
+                                user != null
+                                    ? (user.email?.substring(0, 1).toUpperCase() ??
+                                        '?')
+                                    : '?',
+                                style: TextStyle(
+                                  color: user != null
+                                      ? AppColors.primary
+                                      : AppColors.textMuted,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ),
+
+              // ── Pinned Search Bar & Category Icon Slider ────────
+              SliverAppBar(
+                pinned: true,
+                floating: false,
+                primary: false,
+                backgroundColor: Colors.white,
+                elevation: 0,
+                scrolledUnderElevation: 1,
+                shadowColor: AppColors.border,
+                toolbarHeight: 0,
+                collapsedHeight: 0,
+                automaticallyImplyLeading: false,
+                bottom: PreferredSize(
+                  preferredSize: const Size.fromHeight(130),
+                  child: Container(
+                    color: Colors.white,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _SearchBar(hintItems: _searchHintCombo),
+                        _CategoryIconSlider(
+                          categories: _categories,
+                          selectedCategoryId: _selectedCategoryId,
+                          onSelectCategory: (id) {
+                            setState(() => _selectedCategoryId = id);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+            // ── Clickable Ad Spot (replaces auto slider) ──────
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                child: const AdBanner(),
+              ).animate().fadeIn(duration: 400.ms),
+            ),
+
+            // ── Category-wise Products with "View all" ──────────
+            if (_isLoadingProducts || _isLoadingCategories)
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: AppTheme.pagePadding),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (_, __) => Padding(
+                      padding: const EdgeInsets.only(bottom: 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 140,
+                            height: 20,
+                            decoration: BoxDecoration(
+                              color: AppColors.surfaceVariant,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            height: 240,
+                            child: ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: 4,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(width: 12),
+                              itemBuilder: (_, __) => const SizedBox(
+                                width: 156,
+                                child: ProductCardSkeleton(),
+                              ),
+                            ),
+                          ),
                         ],
                       ),
-                    ));
-                  }
-                },
-              ),
-            ],
-          ),
-
-          // 2. Search Bar
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: TextField(
-                decoration: InputDecoration(
-                  hintText: 'Search "Biryani"',
-                  prefixIcon: const Icon(Icons.search),
-                  filled: true,
-                  fillColor: Colors.white,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                ),
-              ),
-            ),
-          ),
-
-          // 3. Banner
-          SliverToBoxAdapter(
-             child: Container(
-               margin: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-               height: 140,
-               decoration: BoxDecoration(
-                 gradient: LinearGradient(colors: [const Color(0xFFFF6D00), Colors.orange.shade300]),
-                 borderRadius: BorderRadius.circular(16),
-               ),
-               child: Stack(
-                 children: [
-                   Positioned(
-                     left: 20,
-                     top: 30,
-                     child: Column(
-                       crossAxisAlignment: CrossAxisAlignment.start,
-                       children: const [
-                         Text('Fastest Delivery', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-                         Text('Get 50% OFF on first order', style: TextStyle(color: Colors.white, fontSize: 14)),
-                       ],
-                     ),
-                   ),
-                   // Ideally an image here
-                   const Positioned(
-                     right: 10,
-                     bottom: 10,
-                     child: Icon(Icons.fastfood, size: 80, color: Colors.white24),
-                   ),
-                 ],
-               ),
-             ),
-          ),
-
-          // 4. Categories (Simplified)
-          SliverToBoxAdapter(
-            child: SizedBox(
-              height: 100,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                children: [
-                   _buildCategoryItem('Biryani', Icons.rice_bowl),
-                   _buildCategoryItem('Pizza', Icons.local_pizza),
-                   _buildCategoryItem('Burger', Icons.lunch_dining),
-                   _buildCategoryItem('Drinks', Icons.local_drink),
-                   _buildCategoryItem('Dessert', Icons.icecream),
-                ],
-              ),
-            ),
-          ),
-
-          SliverToBoxAdapter(child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text('Recommended for you', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-          )),
-
-          // 5. Product Grid
-          if (_isLoading) 
-             const SliverFillRemaining(child: Center(child: CircularProgressIndicator()))
-          else
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              sliver: SliverGrid(
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  childAspectRatio: 0.75,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                ),
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final product = _products[index];
-                    return _buildProductCard(context, product);
-                  },
-                  childCount: _products.length,
-                ),
-              ),
-            ),
-             
-          // Space for Floating Widget and Cart Bar
-          const SliverToBoxAdapter(child: SizedBox(height: 100)),
-        ],
-      ),
-      
-      // Floating Cart Bar if Items > 0
-      bottomNavigationBar: cart.items.isNotEmpty ? SafeArea(
-        child: Container(
-          margin: const EdgeInsets.all(16),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: Theme.of(context).primaryColor,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 5))],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('${cart.items.length} ITEM${cart.items.length > 1 ? "S" : ""}', 
-                    style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                  Text('₹${cart.totalAmount}', 
-                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                ],
-              ),
-              TextButton(
-                onPressed: () {
-                   Navigator.push(context, MaterialPageRoute(builder: (_) => const CartScreen()));
-                },
-                child: const Row(
-                  children: [
-                    Text('View Cart', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                    SizedBox(width: 4),
-                    Icon(Icons.arrow_right_alt, color: Colors.white),
-                  ],
+                    ),
+                    childCount: 3,
+                  ),
                 ),
               )
-            ],
-          ),
-        ),
-      ) : null,
-      
-      floatingActionButton: user != null ? _buildActiveOrderFab(context, user.id) : null,
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-    );
-  }
-
-  Widget _buildCategoryItem(String title, IconData icon) {
-    return Container(
-      width: 70,
-      margin: const EdgeInsets.only(right: 12),
-      child: Column(
-        children: [
-          Container(
-            height: 60,
-            width: 60,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade200),
-            ),
-            child: Icon(icon, color: Colors.grey[700]),
-          ),
-          const SizedBox(height: 4),
-          Text(title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildProductCard(BuildContext context, dynamic product) {
-    final cart = Provider.of<CartProvider>(context, listen: false);
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5)],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Image Placeholder
-          Expanded(
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-              ),
-              child: Center(child: Icon(Icons.fastfood, size: 40, color: Colors.grey[300])),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(product['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis),
-                Text(product['size'] ?? 'Standard', style: TextStyle(color: Colors.grey[500], fontSize: 12)),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('₹${product['price']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                    InkWell(
-                      onTap: () {
-                         cart.addToCart(product);
-                         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Added to cart'), duration: Duration(milliseconds: 500)));
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Theme.of(context).primaryColor),
-                        ),
-                        child: Text('ADD', style: TextStyle(color: Theme.of(context).primaryColor, fontWeight: FontWeight.bold, fontSize: 12)),
-                      ),
-                    ),
-                  ],
+            else if (_displayCategories.isEmpty)
+              const SliverFillRemaining(
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text('🛒', style: TextStyle(fontSize: 48)),
+                      SizedBox(height: 12),
+                      Text('No products available.',
+                          style: TextStyle(
+                              color: AppColors.textMuted, fontSize: 15)),
+                    ],
+                  ),
                 ),
-              ],
-            ),
-          ),
-        ],
+              )
+            else
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final cat = _displayCategories[index];
+                    final catId = cat['id']?.toString() ?? '';
+                    final catName = cat['name']?.toString() ?? 'Category';
+                    final categoryProducts = _productsByCategory[catId] ?? [];
+                    final displayProducts = categoryProducts.take(8).toList();
+
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 26),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // ── Category Section Header ──────────────
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: AppTheme.pagePadding),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    // Icon(
+                                    //   CategoryIconHelper.getIcon(catName,
+                                    //       selected: true),
+                                    //   size: 22,
+                                    //   color: CategoryIconHelper
+                                    //       .getCategoryColor(catName),
+                                    // ),
+                                    // const SizedBox(width: 8),
+                                    Text(
+                                      catName,
+                                      style: AppTheme.titleLg.copyWith(
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w800,
+                                        color: Colors.black,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                InkWell(
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => CategoryScreen(
+                                          categoryId: catId,
+                                          categoryName: catName,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 4),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Text(
+                                          'View all',
+                                          style: TextStyle(
+                                            color: AppColors.primary,
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 2),
+                                        const Icon(
+                                          Icons.chevron_right_rounded,
+                                          size: 16,
+                                          color: AppColors.primary,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+
+                          // ── Horizontal Product Scroll ────────────
+                          SizedBox(
+                            height: 292,
+                            child: ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: AppTheme.pagePadding),
+                              itemCount: displayProducts.length,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(width: 14),
+                              itemBuilder: (context, i) {
+                                final product = displayProducts[i];
+                                final variants = (product['product_variants']
+                                            as List?)
+                                        ?.cast<Map<String, dynamic>>() ??
+                                    [];
+                                return SizedBox(
+                                  width: 168,
+                                  child: ProductCard(
+                                    product: product,
+                                    variants: variants,
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  childCount: _displayCategories.length,
+                ),
+              ),
+
+            // Bottom spacing for floating dock
+            const SliverToBoxAdapter(child: SizedBox(height: 110)),
+          ],
+        ),
       ),
+    ),
     );
   }
 
-  Widget _buildActiveOrderFab(BuildContext context, String userId) {
-     return StreamBuilder(
-        stream: SupabaseService.client
-            .from('orders')
-            .stream(primaryKey: ['id'])
-            .eq('user_id', userId)
-            .order('created_at', ascending: false)
-            .limit(1)
-            .map((maps) => maps),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData || (snapshot.data as List).isEmpty) return const SizedBox.shrink();
-          
-          final order = (snapshot.data as List)[0];
-          final status = order['status'];
-          if (status == 'delivered' || status == 'cancelled') return const SizedBox.shrink();
+  void _showProfileSheet(BuildContext context, dynamic user) {
+    if (user == null) {
+      Navigator.push(
+          context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+      return;
+    }
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppTheme.radiusXl)),
+      ),
+      builder: (_) => _ProfileSheet(email: user.email ?? ''),
+    );
+  }
+}
 
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 80.0), // Above bottom bar
-            child: FloatingActionButton.extended(
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => OrderTrackingScreen(orderId: order['id']))),
-              backgroundColor: Colors.blue.shade900,
-              icon: const Icon(Icons.delivery_dining, color: Colors.white),
-              label: Text('Track Order #${order['id']}', style: const TextStyle(color: Colors.white)),
+class _SearchBar extends StatelessWidget {
+  final List<String> hintItems;
+
+  const _SearchBar({required this.hintItems});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 2),
+      child: GestureDetector(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => SearchScreen(searchSuggestions: hintItems),
             ),
           );
         },
-      );
+        child: Container(
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceVariant,
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.search_rounded,
+                  color: Colors.black, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TypewriterSearchHint(
+                  items: hintItems,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Active order button (shown in app bar if an order is in flight) ─
+class _ActiveOrderButton extends StatelessWidget {
+  final String userId;
+  const _ActiveOrderButton({required this.userId});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder(
+      stream: SupabaseService.client
+          .from('orders')
+          .stream(primaryKey: ['id'])
+          .eq('user_id', userId)
+          .order('created_at', ascending: false)
+          .limit(1)
+          .map((m) => m),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || (snapshot.data as List).isEmpty) {
+          return const SizedBox(width: 4);
+        }
+        final order = (snapshot.data as List)[0];
+        final status = order['status'];
+        if (status == 'delivered' || status == 'cancelled') {
+          return const SizedBox(width: 4);
+        }
+        return GestureDetector(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => OrderTrackingScreen(orderId: order['id']),
+            ),
+          ),
+          child: Container(
+            margin: const EdgeInsets.only(right: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppColors.success,
+              borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.delivery_dining_rounded,
+                    color: Colors.white, size: 14),
+                SizedBox(width: 4),
+                Text(
+                  'Track',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+          ).animate(onPlay: (c) => c.repeat(reverse: true))
+              .shimmer(duration: 2.seconds, color: Colors.white24),
+        );
+      },
+    );
+  }
+}
+
+// ── Profile sheet (quick access) ──────────────────────────────────
+class _ProfileSheet extends StatelessWidget {
+  final String email;
+  const _ProfileSheet({required this.email});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: AppColors.border,
+              borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+            ),
+          ),
+          const SizedBox(height: 20),
+          CircleAvatar(
+            radius: 32,
+            backgroundColor: AppColors.primary.withValues(alpha: 0.1),
+            child: Text(
+              email.substring(0, 1).toUpperCase(),
+              style: AppTheme.titleLg.copyWith(color: AppColors.primary),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(email, style: AppTheme.bodyLg),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.logout_rounded, size: 18),
+              label: const Text('Logout'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.error,
+                side: const BorderSide(color: AppColors.error),
+              ),
+              onPressed: () async {
+                await SupabaseService.client.auth.signOut();
+                if (context.mounted) Navigator.pop(context);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Category slider under search bar (Blinkit style with icons) ─────
+class _CategoryIconSlider extends StatelessWidget {
+  final List<dynamic> categories;
+  final String? selectedCategoryId;
+  final ValueChanged<String?> onSelectCategory;
+
+  const _CategoryIconSlider({
+    required this.categories,
+    required this.selectedCategoryId,
+    required this.onSelectCategory,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isAllSelected = selectedCategoryId == null;
+
+    final sortedCategories = List<dynamic>.from(categories)
+      ..sort((a, b) {
+        final nameA =
+            (a is Map ? a['name'] : '')?.toString().trim().toLowerCase() ?? '';
+        final nameB =
+            (b is Map ? b['name'] : '')?.toString().trim().toLowerCase() ?? '';
+        if (nameA == 'others' || nameA == 'other') return 1;
+        if (nameB == 'others' || nameB == 'other') return -1;
+        return nameA.compareTo(nameB);
+      });
+
+    return SizedBox(
+      height: 74,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        itemCount: sortedCategories.length + 1,
+        separatorBuilder: (_, __) => const SizedBox(width: 6),
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return _CategoryIconItem(
+              categoryName: 'all',
+              label: 'All',
+              isSelected: isAllSelected,
+              onTap: () => onSelectCategory(null),
+            );
+          }
+          final cat = sortedCategories[index - 1] as Map<String, dynamic>;
+          final catId = cat['id']?.toString() ?? '';
+          final catName = cat['name']?.toString() ?? '';
+          final isSelected = selectedCategoryId == catId;
+
+          return _CategoryIconItem(
+            categoryName: catName,
+            label: catName,
+            isSelected: isSelected,
+            onTap: () => onSelectCategory(catId),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _CategoryIconItem extends StatelessWidget {
+  final String categoryName;
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _CategoryIconItem({
+    required this.categoryName,
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = CategoryIconHelper.getIcon(categoryName, selected: isSelected);
+    final selectedColor = CategoryIconHelper.getCategoryColor(categoryName);
+
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // No background container, larger icon size (28)
+          AnimatedScale(
+            scale: isSelected ? 1.08 : 1.0,
+            duration: const Duration(milliseconds: 180),
+            child: Icon(
+              icon,
+              size: 28,
+              color: isSelected ? selectedColor : const Color(0xFF6B7280),
+            ),
+          ),
+          const SizedBox(height: 5),
+          SizedBox(
+            width: 62,
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
+                color: isSelected ? Colors.black : const Color(0xFF4B5563),
+              ),
+            ),
+          ),
+          const SizedBox(height: 3),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: isSelected ? 20 : 0,
+            height: 2.5,
+            decoration: BoxDecoration(
+              color: isSelected ? selectedColor : Colors.transparent,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

@@ -93,13 +93,30 @@ const Orders: React.FC = () => {
         try {
             const { error } = await supabase
                 .from('orders')
-                .update({ rider_id: riderId, status: 'confirmed' }) 
+                .update({ rider_id: riderId }) 
                 .eq('id', orderId);
 
             if (error) throw error;
             await fetchOrders();
         } catch (error) {
             console.error("Error assigning rider:", error);
+        }
+    };
+
+    const cancelOrder = async (orderId: number) => {
+        const confirmed = window.confirm(`Are you sure you want to cancel Order #${orderId}? This action cannot be undone.`);
+        if (!confirmed) return;
+        try {
+            const { error } = await supabase
+                .from('orders')
+                .update({ status: 'cancelled' })
+                .eq('id', orderId);
+
+            if (error) throw error;
+            await fetchOrders();
+        } catch (error) {
+            console.error("Error cancelling order:", error);
+            alert("Failed to cancel order: " + (error as any)?.message);
         }
     };
 
@@ -279,7 +296,7 @@ const Orders: React.FC = () => {
                                                 background: `${getStatusColor(order.status)}18`,
                                                 color: getStatusColor(order.status)
                                             }}>
-                                                {order.status.replace('_', ' ')}
+                                                {order.status.replaceAll('_', ' ')}
                                             </span>
                                         </div>
                                     </div>
@@ -312,71 +329,164 @@ const Orders: React.FC = () => {
                                     </div>
 
                                     {/* Action Bar */}
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 6, borderTop: '1px solid var(--border)' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 6, borderTop: '1px solid var(--border)', flexWrap: 'wrap', gap: 10 }}>
                                         {order.status === 'pending' && (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', width: '100%' }}>
-                                                <span style={{ fontSize: '0.85em', color: 'var(--text-muted)', fontWeight: 600 }}>Assign Rider:</span>
-                                                <select 
-                                                    style={{ 
-                                                        padding: '7px 12px', 
-                                                        borderRadius: 'var(--radius-sm)', 
-                                                        border: '1px solid var(--border)', 
-                                                        background: 'var(--bg-input)', 
-                                                        color: 'var(--text-primary)',
-                                                        fontSize: '0.85em',
-                                                        cursor: 'pointer'
-                                                    }}
-                                                    value={order.rider_id || ''}
-                                                    onChange={(e) => assignRider(order.id, e.target.value)}
-                                                >
-                                                    <option value="" disabled>Select available rider...</option>
-                                                    {riders.map(r => (
-                                                        <option key={r.id} value={r.id}>{r.full_name}</option>
-                                                    ))}
-                                                </select>
-                                                <button
-                                                    onClick={() => updateStatus(order.id, 'confirmed')}
-                                                    className="btn btn-primary"
-                                                    style={{ marginLeft: 'auto', padding: '6px 14px', fontSize: '0.85em' }}
-                                                >
-                                                    Accept &amp; Prepare
-                                                </button>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', width: '100%' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                                    <span style={{ fontSize: '0.85em', color: 'var(--text-muted)', fontWeight: 600 }}>Assign Rider:</span>
+                                                    <select 
+                                                        style={{ 
+                                                            padding: '6px 12px', 
+                                                            borderRadius: 'var(--radius-sm)', 
+                                                            border: '1px solid var(--border)', 
+                                                            background: 'var(--bg-input)', 
+                                                            color: 'var(--text-primary)',
+                                                            fontSize: '0.85em',
+                                                            cursor: 'pointer'
+                                                        }}
+                                                        value={order.rider_id || ''}
+                                                        onChange={(e) => assignRider(order.id, e.target.value)}
+                                                    >
+                                                        <option value="" disabled>Select available rider...</option>
+                                                        {riders.map(r => (
+                                                            <option key={r.id} value={r.id}>{r.full_name}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
+                                                    <button
+                                                        onClick={() => cancelOrder(order.id)}
+                                                        className="btn"
+                                                        style={{ 
+                                                            padding: '6px 12px', 
+                                                            fontSize: '0.85em',
+                                                            border: '1px solid var(--border)',
+                                                            color: 'var(--danger)',
+                                                            background: 'transparent',
+                                                            cursor: 'pointer'
+                                                        }}
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                    <button
+                                                        onClick={() => updateStatus(order.id, 'confirmed')}
+                                                        className="btn btn-primary"
+                                                        style={{ padding: '6px 14px', fontSize: '0.85em' }}
+                                                    >
+                                                        Accept &amp; Prepare
+                                                    </button>
+                                                </div>
                                             </div>
                                         )}
 
                                         {order.status === 'confirmed' && (
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                                                <span style={{ color: 'var(--text-muted)', fontSize: '0.85em' }}>
-                                                    Assigned to: <strong style={{ color: 'var(--text-primary)' }}>{riders.find(r => r.id === order.rider_id)?.full_name || 'Rider'}</strong>
-                                                </span>
-                                                <button 
-                                                    className="btn btn-primary"
-                                                    onClick={() => updateStatus(order.id, 'out_for_delivery')}
-                                                    style={{ padding: '6px 14px', fontSize: '0.85em' }}
-                                                >
-                                                    Dispatch Order &rarr;
-                                                </button>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', width: '100%' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                                    <span style={{ fontSize: '0.85em', color: 'var(--text-muted)', fontWeight: 600 }}>Rider:</span>
+                                                    <select 
+                                                        style={{ 
+                                                            padding: '6px 12px', 
+                                                            borderRadius: 'var(--radius-sm)', 
+                                                            border: '1px solid var(--border)', 
+                                                            background: 'var(--bg-input)', 
+                                                            color: 'var(--text-primary)',
+                                                            fontSize: '0.85em',
+                                                            cursor: 'pointer'
+                                                        }}
+                                                        value={order.rider_id || ''}
+                                                        onChange={(e) => assignRider(order.id, e.target.value)}
+                                                    >
+                                                        <option value="" disabled>Select rider...</option>
+                                                        {riders.map(r => (
+                                                            <option key={r.id} value={r.id}>{r.full_name}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
+                                                    <button
+                                                        onClick={() => cancelOrder(order.id)}
+                                                        className="btn"
+                                                        style={{ 
+                                                            padding: '6px 12px', 
+                                                            fontSize: '0.85em',
+                                                            border: '1px solid var(--border)',
+                                                            color: 'var(--danger)',
+                                                            background: 'transparent',
+                                                            cursor: 'pointer'
+                                                        }}
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                    <button 
+                                                        className="btn btn-primary"
+                                                        onClick={() => updateStatus(order.id, 'out_for_delivery')}
+                                                        style={{ padding: '6px 14px', fontSize: '0.85em' }}
+                                                    >
+                                                        Dispatch Order &rarr;
+                                                    </button>
+                                                </div>
                                             </div>
                                         )}
 
                                         {order.status === 'out_for_delivery' && (
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                                                <span style={{ color: 'var(--info)', fontSize: '0.85em', fontStyle: 'italic' }}>
-                                                    🛵 Rider on the way to customer...
-                                                </span>
-                                                <button 
-                                                    className="btn btn-primary"
-                                                    onClick={() => updateStatus(order.id, 'delivered')}
-                                                    style={{ background: 'var(--success)', color: 'white', padding: '6px 14px', fontSize: '0.85em' }}
-                                                >
-                                                    Mark Delivered ✓
-                                                </button>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', width: '100%' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                                    <span style={{ fontSize: '0.85em', color: 'var(--info)', fontWeight: 600 }}>🛵 Rider:</span>
+                                                    <select 
+                                                        style={{ 
+                                                            padding: '6px 12px', 
+                                                            borderRadius: 'var(--radius-sm)', 
+                                                            border: '1px solid var(--border)', 
+                                                            background: 'var(--bg-input)', 
+                                                            color: 'var(--text-primary)',
+                                                            fontSize: '0.85em',
+                                                            cursor: 'pointer'
+                                                        }}
+                                                        value={order.rider_id || ''}
+                                                        onChange={(e) => assignRider(order.id, e.target.value)}
+                                                    >
+                                                        <option value="" disabled>Select rider...</option>
+                                                        {riders.map(r => (
+                                                            <option key={r.id} value={r.id}>{r.full_name}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
+                                                    <button
+                                                        onClick={() => cancelOrder(order.id)}
+                                                        className="btn"
+                                                        style={{ 
+                                                            padding: '6px 12px', 
+                                                            fontSize: '0.85em',
+                                                            border: '1px solid var(--border)',
+                                                            color: 'var(--danger)',
+                                                            background: 'transparent',
+                                                            cursor: 'pointer'
+                                                        }}
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                    <button 
+                                                        className="btn btn-primary"
+                                                        onClick={() => updateStatus(order.id, 'delivered')}
+                                                        style={{ background: 'var(--success)', color: 'white', padding: '6px 14px', fontSize: '0.85em' }}
+                                                    >
+                                                        Mark Delivered ✓
+                                                    </button>
+                                                </div>
                                             </div>
                                         )}
                                         
                                         {['delivered', 'cancelled'].includes(order.status) && (
-                                            <div style={{ color: order.status === 'delivered' ? 'var(--success)' : 'var(--danger)', fontSize: '0.85em', fontWeight: 600 }}>
-                                                {order.status === 'delivered' ? '✓ Order Completed Successfully' : '✕ Order Cancelled'}
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                                                <div style={{ color: order.status === 'delivered' ? 'var(--success)' : 'var(--danger)', fontSize: '0.85em', fontWeight: 600 }}>
+                                                    {order.status === 'delivered' ? '✓ Order Completed Successfully' : '✕ Order Cancelled'}
+                                                </div>
+                                                {order.rider_id && (
+                                                    <span style={{ fontSize: '0.82em', color: 'var(--text-muted)' }}>
+                                                        Delivered by: <strong style={{ color: 'var(--text-primary)' }}>{riders.find(r => r.id === order.rider_id)?.full_name || 'Rider'}</strong>
+                                                    </span>
+                                                )}
                                             </div>
                                         )}
                                     </div>

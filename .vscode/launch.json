@@ -1,0 +1,25 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "QuickComm User App",
+      "cwd": "apps/user_app",
+      "request": "launch",
+      "type": "dart",
+      "program": "apps/user_app/lib/main.dart",
+      "args": [
+        "--dart-define-from-file=../supabase_env.json"
+      ]
+    },
+    {
+      "name": "QuickComm Delivery App",
+      "cwd": "apps/delivery_app",
+      "request": "launch",
+      "type": "dart",
+      "program": "apps/delivery_app/lib/main.dart",
+      "args": [
+        "--dart-define-from-file=../supabase_env.json"
+      ]
+    }
+  ]
+}

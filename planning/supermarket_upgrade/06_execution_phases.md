@@ -14,7 +14,8 @@ Phase 3 — Admin Panel Products  (Priority: HIGH)
 Phase 4 — Admin Panel Inventory (Priority: HIGH)
 Phase 5 — User App (Flutter)    (Priority: MEDIUM)
 Phase 6 — Rider App (Flutter)   (Priority: LOW - minor changes)
-Phase 7 — Polish & Harden       (Priority: ONGOING)
+Phase 7 — Cart DB Persistence   (Priority: HIGH - cross-device sync)
+Phase 8 — Polish & Harden       (Priority: ONGOING)
 ```
 
 ---
@@ -217,21 +218,49 @@ Phase 7 — Polish & Harden       (Priority: ONGOING)
 
 ---
 
-## Phase 7 — Production Hardening 🛡️
+## Phase 7 — Cart Items Database Persistence 🛒💾
+
+**Goal:** Persist cart items in Supabase PostgreSQL (matching the persistence model used for orders), enabling cross-device cart continuity, abandoned cart recovery, and instant restore across app restarts.  
+**Duration estimate:** 1-2 sessions  
+**Dependency:** Phase 5 (User App) & Phase 6 (Rider App)
+
+### Tasks
+
+- [ ] **7.1** Supabase Migration: `cart_items` table
+  - Table schema: `id` (bigint generated always as identity primary key), `user_id` (uuid references auth.users on delete cascade), `product_id` (bigint references products), `variant_id` (bigint references product_variants), `quantity` (int not null default 1 check > 0), `created_at` (timestamptz default now()), `updated_at` (timestamptz default now())
+  - Unique constraint: `UNIQUE(user_id, variant_id)` to guarantee a single row per variant
+  - RLS Policies: `SELECT`, `INSERT`, `UPDATE`, `DELETE` allowed where `auth.uid() == user_id`
+  - Indexing: `CREATE INDEX idx_cart_items_user_id ON cart_items(user_id)`
+  - Trigger: Auto update `updated_at` on modification
+
+- [ ] **7.2** Supabase RPC Functions
+  - `upsert_cart_item(p_variant_id, p_quantity)` — atomically inserts or updates quantity
+  - `merge_guest_cart(p_items jsonb)` — upon user login or signup, seamlessly merges local device cart with existing server cart
+
+- [ ] **7.3** User App `CartProvider` Remote Sync Integration
+  - Initialize and hydrate cart from Supabase when `user != null`
+  - Fall back to local `SharedPreferences` when offline or unauthenticated (guest)
+  - On user login, trigger `merge_guest_cart` to combine guest items with user's remote cart
+  - Debounced background sync: debounced write (300-500ms) on cart quantity changes to prevent DB thrashing during rapid taps
+  - Auto-clear remote cart upon order placement (`cart_items` deleted after `orders` and `order_items` inserted)
+
+---
+
+## Phase 8 — Production Hardening 🛡️
 
 **Goal:** Make it production-ready  
 **Duration estimate:** Ongoing
 
 ### Tasks
 
-- [ ] **7.1** Supabase Storage CDN — ensure images have proper caching headers
-- [ ] **7.2** Input validation — server-side validation for all new endpoints
-- [ ] **7.3** Admin-only endpoint protection — verify role check on all write endpoints
-- [ ] **7.4** Pagination on all list endpoints (no unbounded queries)
-- [ ] **7.5** Error handling — consistent error response format
-- [ ] **7.6** Rate limiting on upload endpoints
-- [ ] **7.7** Full-text search on products — add PostgreSQL `tsvector` index
-- [ ] **7.8** Write a `TESTING.md` with manual test checklist
+- [ ] **8.1** Supabase Storage CDN — ensure images have proper caching headers
+- [ ] **8.2** Input validation — server-side validation for all new endpoints
+- [ ] **8.3** Admin-only endpoint protection — verify role check on all write endpoints
+- [ ] **8.4** Pagination on all list endpoints (no unbounded queries)
+- [ ] **8.5** Error handling — consistent error response format
+- [ ] **8.6** Rate limiting on upload endpoints
+- [ ] **8.7** Full-text search on products — add PostgreSQL `tsvector` index
+- [ ] **8.8** Write a `TESTING.md` with manual test checklist
 
 ---
 
