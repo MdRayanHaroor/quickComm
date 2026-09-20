@@ -160,15 +160,30 @@ class _LoginScreenState extends State<LoginScreen>
                 Column(
                   children: [
                     Container(
-                      width: 72,
-                      height: 72,
+                      width: 76,
+                      height: 76,
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(AppTheme.radiusXl),
-                        boxShadow: AppColors.elevatedShadow,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.2),
+                            blurRadius: 16,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
                       ),
-                      child: const Center(
-                        child: Text('⚡', style: TextStyle(fontSize: 36)),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: Image.asset(
+                          'assets/icon/app_icon.png',
+                          width: 76,
+                          height: 76,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) => const Center(
+                            child: Text('⚡', style: TextStyle(fontSize: 36)),
+                          ),
+                        ),
                       ),
                     ).animate().scale(
                           duration: 600.ms,
@@ -176,7 +191,7 @@ class _LoginScreenState extends State<LoginScreen>
                         ),
                     const SizedBox(height: 16),
                     Text(
-                      'QuickComm',
+                      'Zippy',
                       style: AppTheme.displayLg.copyWith(color: Colors.white),
                     ).animate().fadeIn(delay: 200.ms, duration: 400.ms),
                     const SizedBox(height: 6),
