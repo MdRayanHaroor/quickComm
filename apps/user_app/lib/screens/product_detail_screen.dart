@@ -6,6 +6,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../providers/cart_provider.dart';
+import '../providers/recently_viewed_provider.dart';
 import '../widgets/variant_bottom_sheet.dart';
 import '../widgets/cart_bar.dart';
 import 'cart_screen.dart';
@@ -28,6 +29,18 @@ class ProductDetailScreen extends StatefulWidget {
 class _ProductDetailScreenState extends State<ProductDetailScreen> {
   final _pageController = PageController();
   int _selectedVariantIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context
+            .read<RecentlyViewedProvider>()
+            .recordView(widget.product, widget.variants);
+      }
+    });
+  }
 
   List<String> get _images {
     final imgs = widget.product['images'];
@@ -410,6 +423,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                                   sellingPrice: _sellingPrice,
                                   mrp: _mrp,
                                   imageUrl: _images.isNotEmpty ? _images[0] : null,
+                                  categoryId: widget.product['category_id']?.toString(),
                                 ));
                               }
                             },

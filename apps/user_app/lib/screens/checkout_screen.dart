@@ -5,6 +5,7 @@ import '../services/supabase_service.dart';
 import '../services/delivery_service.dart';
 import '../providers/cart_provider.dart';
 import '../providers/location_provider.dart';
+import '../providers/recently_viewed_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import 'order_success_screen.dart';
@@ -263,6 +264,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           }).toList();
 
       await SupabaseService.client.from('order_items').insert(orderItems);
+
+      // Extract ordered product IDs and remove them from Continue Browsing
+      final orderedProductIds =
+          cart.items.map((item) => item.productId).toList();
+      if (mounted) {
+        context
+            .read<RecentlyViewedProvider>()
+            .removeOrderedProducts(orderedProductIds);
+      }
 
       // 3. Clear cart
       cart.clearCart();

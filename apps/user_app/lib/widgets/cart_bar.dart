@@ -22,28 +22,35 @@ class CartBar extends StatelessWidget {
     final displayItems = items.take(3).toList();
     final overlapWidth = displayItems.isEmpty
         ? 0.0
-        : 26.0 + (displayItems.length - 1) * 13.0;
+        : 32.0 + (displayItems.length - 1) * 16.0;
 
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(28),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.16),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(28),
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               decoration: BoxDecoration(
                 // Primary maroon/burgundy with glass transparency
-                color: const Color(0xFF6B1124).withValues(alpha: 0.85),
-                borderRadius: BorderRadius.circular(24),
+                color: const Color(0xFF6B1124).withValues(alpha: 0.88),
+                borderRadius: BorderRadius.circular(28),
                 border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.28),
-                  width: 1.0,
+                  color: Colors.white.withValues(alpha: 0.30),
+                  width: 1.2,
                 ),
               ),
               child: Row(
@@ -53,21 +60,28 @@ class CartBar extends StatelessWidget {
                   if (displayItems.isNotEmpty) ...[
                     SizedBox(
                       width: overlapWidth,
-                      height: 26,
+                      height: 32,
                       child: Stack(
                         clipBehavior: Clip.none,
                         children: List.generate(displayItems.length, (i) {
                           final item = displayItems[i];
                           return Positioned(
-                            left: i * 13.0,
+                            left: i * 16.0,
                             child: Container(
-                              width: 26,
-                              height: 26,
+                              width: 32,
+                              height: 32,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 color: Colors.white,
                                 border: Border.all(
-                                    color: Colors.white, width: 0.8),
+                                    color: Colors.white, width: 1.0),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.15),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
                               ),
                               child: ClipOval(
                                 child: item.imageUrl != null &&
@@ -81,7 +95,7 @@ class CartBar extends StatelessWidget {
                                           color: AppColors.surfaceVariant,
                                           child: const Icon(
                                               Icons.shopping_bag_outlined,
-                                              size: 12,
+                                              size: 15,
                                               color: AppColors.textMuted),
                                         ),
                                       )
@@ -89,7 +103,7 @@ class CartBar extends StatelessWidget {
                                         color: AppColors.surfaceVariant,
                                         child: const Icon(
                                             Icons.shopping_bag_outlined,
-                                            size: 12,
+                                            size: 15,
                                             color: AppColors.textMuted),
                                       ),
                               ),
@@ -98,7 +112,7 @@ class CartBar extends StatelessWidget {
                         }),
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 10),
                   ],
 
                   // Stacked: View Cart & item count (no amount)
@@ -109,7 +123,7 @@ class CartBar extends StatelessWidget {
                       const Text(
                         'View Cart',
                         style: TextStyle(
-                          fontSize: 12.5,
+                          fontSize: 14.5,
                           fontWeight: FontWeight.w800,
                           color: Colors.white,
                           letterSpacing: -0.2,
@@ -118,26 +132,26 @@ class CartBar extends StatelessWidget {
                       Text(
                         '$itemCount item${itemCount > 1 ? 's' : ''}',
                         style: TextStyle(
-                          fontSize: 10,
+                          fontSize: 11.5,
                           fontWeight: FontWeight.w600,
-                          color: Colors.white.withValues(alpha: 0.8),
+                          color: Colors.white.withValues(alpha: 0.85),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 12),
 
                   // Arrow to go to cart page
                   Container(
-                    width: 24,
-                    height: 24,
+                    width: 30,
+                    height: 30,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.20),
+                      color: Colors.white.withValues(alpha: 0.22),
                     ),
                     child: const Icon(
                       Icons.arrow_forward_rounded,
-                      size: 14,
+                      size: 16,
                       color: Colors.white,
                     ),
                   ),

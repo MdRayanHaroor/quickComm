@@ -8,6 +8,8 @@ import '../services/supabase_service.dart';
 import '../services/delivery_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../widgets/product_card.dart';
+import 'category_screen.dart';
 import 'checkout_screen.dart';
 import 'login_screen.dart';
 
@@ -85,6 +87,18 @@ class _EmptyCart extends StatelessWidget {
   }
 }
 
+class _CategoryRecommendation {
+  final String categoryId;
+  final String categoryName;
+  final List<Map<String, dynamic>> products;
+
+  const _CategoryRecommendation({
+    required this.categoryId,
+    required this.categoryName,
+    required this.products,
+  });
+}
+
 class _CartBody extends StatefulWidget {
   final CartProvider cart;
   const _CartBody({required this.cart});
@@ -96,11 +110,14 @@ class _CartBody extends StatefulWidget {
 class _CartBodyState extends State<_CartBody> {
   DeliveryEstimate _estimate = const DeliveryEstimate(minutes: 12);
   double? _deliveryFee;
+  List<_CategoryRecommendation> _categoryRecommendations = [];
+  String _lastProductIdsKey = '';
 
   @override
   void initState() {
     super.initState();
     _loadDeliveryDetails();
+    _loadRecommendations();
   }
 
   Future<void> _loadDeliveryDetails() async {
@@ -114,6 +131,110 @@ class _CartBodyState extends State<_CartBody> {
     }
   }
 
+  String _buildProductIdsKey(List<CartItem> items) {
+    final ids = items.map((i) => i.productId).toList()..sort();
+    return ids.join(',');
+  }
+
+  Future<void> _loadRecommendations() async {
+    final cart = widget.cart;
+    final cartProductIds = cart.items.map((i) => i.productId).toSet();
+    if (cartProductIds.isEmpty) {
+      if (mounted) setState(() => _categoryRecommendations = []);
+      return;
+    }
+
+    _lastProductIdsKey = _buildProductIdsKey(cart.items);
+
+    try {
+      final categoryIdsSet = <String>{};
+      final missingProductIds = <String>[];
+
+      for (final item in cart.items) {
+        if (item.categoryId != null && item.categoryId!.isNotEmpty) {
+          categoryIdsSet.add(item.categoryId!);
+        } else {
+          missingProductIds.add(item.productId);
+        }
+      }
+
+      // If categoryId was missing for any item, query product records
+      if (missingProductIds.isNotEmpty) {
+        final missingRes = await SupabaseService.client
+            .from('products')
+            .select('id, category_id')
+            .inFilter('id', missingProductIds.map((id) => int.tryParse(id) ?? id).toList());
+
+        for (final row in missingRes) {
+          final cId = row['category_id']?.toString();
+          if (cId != null && cId.isNotEmpty) {
+            categoryIdsSet.add(cId);
+          }
+        }
+      }
+
+      if (categoryIdsSet.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _categoryRecommendations = [];
+          });
+        }
+        return;
+      }
+
+      // Fetch category names
+      final categoriesRes = await SupabaseService.client
+          .from('categories')
+          .select('id, name')
+          .inFilter('id', categoryIdsSet.map((id) => int.tryParse(id) ?? id).toList());
+
+      final categoryNameMap = <String, String>{};
+      for (final cat in categoriesRes) {
+        categoryNameMap[cat['id'].toString()] =
+            cat['name']?.toString() ?? 'Category';
+      }
+
+      // Fetch active products in these categories
+      final productsRes = await SupabaseService.client
+          .from('products')
+          .select('*, product_variants(*)')
+          .inFilter('category_id', categoryIdsSet.map((id) => int.tryParse(id) ?? id).toList())
+          .eq('is_available', true)
+          .limit(40);
+
+      final List<Map<String, dynamic>> allProds =
+          List<Map<String, dynamic>>.from(productsRes);
+
+      final List<_CategoryRecommendation> results = [];
+
+      for (final catId in categoryIdsSet) {
+        final catName = categoryNameMap[catId] ?? 'Category';
+        // Filter out any product that is already in the cart
+        final catProds = allProds.where((p) {
+          final pCatId = p['category_id']?.toString();
+          final pId = p['id']?.toString();
+          return pCatId == catId && !cartProductIds.contains(pId);
+        }).toList();
+
+        if (catProds.isNotEmpty) {
+          results.add(_CategoryRecommendation(
+            categoryId: catId,
+            categoryName: catName,
+            products: catProds,
+          ));
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _categoryRecommendations = results;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading cart recommendations: $e');
+    }
+  }
+
   @override
   void didUpdateWidget(covariant _CartBody oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -121,6 +242,11 @@ class _CartBodyState extends State<_CartBody> {
       DeliveryService.getEffectiveDeliveryFee(widget.cart.subtotal).then((fee) {
         if (mounted) setState(() => _deliveryFee = fee);
       });
+    }
+
+    final newKey = _buildProductIdsKey(widget.cart.items);
+    if (_lastProductIdsKey != newKey) {
+      _loadRecommendations();
     }
   }
 
@@ -142,40 +268,101 @@ class _CartBodyState extends State<_CartBody> {
 
     return Column(
       children: [
-        // ── Delivery estimate strip ─────────────────────────────
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          color: AppColors.successLight,
-          child: Row(
+        // ── Scrollable Cart Content ──────────────────────────────
+        Expanded(
+          child: ListView(
+            padding: EdgeInsets.zero,
             children: [
-              const Icon(Icons.timer_outlined,
-                  color: AppColors.success, size: 18),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  deliveryText,
-                  style: AppTheme.labelMd.copyWith(color: AppColors.success),
+              // 1. Delivery estimate strip
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                color: AppColors.successLight,
+                child: Row(
+                  children: [
+                    const Icon(Icons.timer_outlined,
+                        color: AppColors.success, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        deliveryText,
+                        style: AppTheme.labelMd.copyWith(color: AppColors.success),
+                      ),
+                    ),
+                  ],
                 ),
               ),
+
+              // 2. Cart items container
+              Container(
+                margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+                  border: Border.all(color: AppColors.border, width: 0.5),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Items in Cart (${cart.itemCount})',
+                      style: AppTheme.titleSm.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 8),
+                    ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: cart.items.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final item = cart.items[index];
+                        return _CartItemRow(item: item, cart: cart);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+
+              // 3. Bill Details
+              _BillCard(cart: cart, deliveryFee: _deliveryFee),
+
+              // 4. "You might also like" recommendations
+              if (_categoryRecommendations.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: AppTheme.pagePadding),
+                  child: Row(
+                    children: [
+                      // const Icon(Icons.auto_awesome_rounded,
+                      //     color: AppColors.primary, size: 20),
+                      // const SizedBox(width: 8),
+                      Text(
+                        'You might also like',
+                        style: AppTheme.titleLg.copyWith(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.black,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // One recommendation row per category present in the cart
+                for (final catRec in _categoryRecommendations)
+                  _CartCategoryRecommendationRow(
+                    categoryName: catRec.categoryName,
+                    categoryId: catRec.categoryId,
+                    products: catRec.products,
+                  ),
+              ],
+
+              const SizedBox(height: 16),
             ],
           ),
         ),
-
-        // ── Cart items ──────────────────────────────────────────
-        Expanded(
-          child: ListView.separated(
-            padding: const EdgeInsets.all(AppTheme.pagePadding),
-            itemCount: cart.items.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final item = cart.items[index];
-              return _CartItemRow(item: item, cart: cart);
-            },
-          ),
-        ),
-
-        // ── Bill Details ────────────────────────────────────────
-        _BillCard(cart: cart, deliveryFee: _deliveryFee),
 
         // ── Checkout button ────────────────────────────────────
         Consumer<LocationProvider>(
@@ -267,6 +454,110 @@ class _CartBodyState extends State<_CartBody> {
           },
         ),
       ],
+    );
+  }
+}
+
+/// Category recommendation horizontal row in CartScreen
+class _CartCategoryRecommendationRow extends StatelessWidget {
+  final String categoryName;
+  final String categoryId;
+  final List<Map<String, dynamic>> products;
+
+  const _CartCategoryRecommendationRow({
+    required this.categoryName,
+    required this.categoryId,
+    required this.products,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Subheader: Category Name + "View all >"
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppTheme.pagePadding),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  categoryName,
+                  style: const TextStyle(
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black,
+                  ),
+                ),
+                InkWell(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => CategoryScreen(
+                          categoryId: categoryId,
+                          categoryName: categoryName,
+                          initialProducts: products,
+                        ),
+                      ),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(16),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'View all',
+                          style: TextStyle(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                        SizedBox(width: 2),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          size: 15,
+                          color: AppColors.primary,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Horizontal scroll of ProductCard
+          SizedBox(
+            height: 292,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: AppTheme.pagePadding),
+              itemCount: products.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 14),
+              itemBuilder: (context, i) {
+                final product = products[i];
+                final variants = (product['product_variants'] as List?)
+                        ?.cast<Map<String, dynamic>>() ??
+                    [];
+                return SizedBox(
+                  width: 168,
+                  child: ProductCard(
+                    product: product,
+                    variants: variants,
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

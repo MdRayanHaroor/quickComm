@@ -44,28 +44,28 @@ class ActiveOrderBar extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       child: Container(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(28),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.12),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+              color: Colors.black.withValues(alpha: 0.16),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
             ),
           ],
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(28),
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               decoration: BoxDecoration(
                 // Dark emerald green glass matching modern live delivery styling
                 color: const Color(0xFF064E3B).withValues(alpha: 0.90),
-                borderRadius: BorderRadius.circular(24),
+                borderRadius: BorderRadius.circular(28),
                 border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.28),
-                  width: 1.0,
+                  color: Colors.white.withValues(alpha: 0.30),
+                  width: 1.2,
                 ),
               ),
               child: Row(
@@ -73,8 +73,8 @@ class ActiveOrderBar extends StatelessWidget {
                 children: [
                   // Animated pulsing live icon
                   Container(
-                    width: 26,
-                    height: 26,
+                    width: 32,
+                    height: 32,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: AppColors.primary.withValues(alpha: 0.25),
@@ -85,7 +85,7 @@ class ActiveOrderBar extends StatelessWidget {
                     ),
                     child: Icon(
                       iconData,
-                      size: 15,
+                      size: 16,
                       color: Colors.white,
                     ),
                   )
@@ -96,7 +96,7 @@ class ActiveOrderBar extends StatelessWidget {
                         duration: 1200.ms,
                         curve: Curves.easeInOut,
                       ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 10),
 
                   // Status text & Subtitle
                   Column(
@@ -120,7 +120,7 @@ class ActiveOrderBar extends StatelessWidget {
                           Text(
                             statusLabel,
                             style: const TextStyle(
-                              fontSize: 12.5,
+                              fontSize: 14.5,
                               fontWeight: FontWeight.w800,
                               color: Colors.white,
                               letterSpacing: -0.2,
@@ -131,29 +131,29 @@ class ActiveOrderBar extends StatelessWidget {
                       Text(
                         'Track Order',
                         style: TextStyle(
-                          fontSize: 10,
+                          fontSize: 11.5,
                           fontWeight: FontWeight.w600,
-                          color: Colors.white.withValues(alpha: 0.8),
+                          color: Colors.white.withValues(alpha: 0.85),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(width: 8),
+                  // const SizedBox(width: 12),
 
                   // Forward arrow
-                  Container(
-                    width: 22,
-                    height: 22,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.20),
-                    ),
-                    child: const Icon(
-                      Icons.arrow_forward_rounded,
-                      size: 13,
-                      color: Colors.white,
-                    ),
-                  ),
+                  // Container(
+                  //   width: 30,
+                  //   height: 30,
+                  //   decoration: BoxDecoration(
+                  //     shape: BoxShape.circle,
+                  //     color: Colors.white.withValues(alpha: 0.22),
+                  //   ),
+                  //   child: const Icon(
+                  //     Icons.arrow_forward_rounded,
+                  //     size: 16,
+                  //     color: Colors.white,
+                  //   ),
+                  // ),
                 ],
               ),
             ),

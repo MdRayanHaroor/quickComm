@@ -13,7 +13,9 @@ import '../widgets/product_card.dart';
 import '../widgets/typewriter_search_hint.dart';
 import '../widgets/delivery_location_sheet.dart';
 import '../utils/category_icon_helper.dart';
+import '../providers/recently_viewed_provider.dart';
 import 'category_screen.dart';
+import 'continue_browsing_screen.dart';
 import 'login_screen.dart';
 import 'search_screen.dart';
 import 'account_screen.dart';
@@ -398,6 +400,116 @@ class _HomeScreenState extends State<HomeScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 child: const AdBanner(),
               ).animate().fadeIn(duration: 400.ms),
+            ),
+
+            // ── Continue Browsing Section (Visible only when viewed items exist) ──
+            Consumer<RecentlyViewedProvider>(
+              builder: (context, recentProv, _) {
+                final recentItems = recentProv.itemsByRecency;
+                if (recentItems.isEmpty) {
+                  return const SliverToBoxAdapter(child: SizedBox.shrink());
+                }
+
+                final displayItems = recentItems.take(8).toList();
+
+                return SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 26),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // ── Continue Browsing Header ──────────────
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: AppTheme.pagePadding),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  // const Icon(
+                                  //   Icons.history_rounded,
+                                  //   size: 20,
+                                  //   color: AppColors.primary,
+                                  // ),
+                                  // const SizedBox(width: 8),
+                                  Text(
+                                    'Continue browsing',
+                                    style: AppTheme.titleLg.copyWith(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.black,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              InkWell(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          const ContinueBrowsingScreen(),
+                                    ),
+                                  );
+                                },
+                                borderRadius: BorderRadius.circular(16),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 4),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: const [
+                                      Text(
+                                        'View all',
+                                        style: TextStyle(
+                                          color: AppColors.primary,
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                      SizedBox(width: 2),
+                                      Icon(
+                                        Icons.chevron_right_rounded,
+                                        size: 16,
+                                        color: AppColors.primary,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // ── Horizontal Product Scroll ────────────
+                        SizedBox(
+                          height: 292,
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: AppTheme.pagePadding),
+                            itemCount: displayItems.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(width: 14),
+                            itemBuilder: (context, i) {
+                              final item = displayItems[i];
+                              return SizedBox(
+                                width: 168,
+                                child: ProductCard(
+                                  product: item.product,
+                                  variants: item.variants,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
 
             // ── Category-wise Products with "View all" ──────────

@@ -195,6 +195,7 @@ class _VariantBottomSheetState extends State<VariantBottomSheet> {
                                     sellingPrice: sellingPrice,
                                     mrp: mrp,
                                     imageUrl: _getImageUrl(product),
+                                    categoryId: product['category_id']?.toString(),
                                   ));
                                 },
                               ),

@@ -4,11 +4,13 @@ import {
   FaChartPie, FaBolt, FaSignOutAlt, FaCalendarAlt, FaClipboardList,
   FaUsersCog, FaMapMarkedAlt, FaBoxOpen, FaTrademark,
   FaLayerGroup, FaMoon, FaSun, FaChevronLeft, FaChevronRight, FaWarehouse,
-  FaShoppingBag, FaCog
+  FaShoppingBag, FaCog, FaVolumeUp, FaVolumeMute
 } from 'react-icons/fa';
 import { supabase } from '../supabaseClient';
 import api from '../api';
 import { useTheme } from './ThemeContext';
+import { isOrderSoundEnabled, setOrderSoundEnabled, playOrderAlertSound } from '../utils/orderSound';
+import toast from 'react-hot-toast';
 
 const Sidebar = () => {
   const location = useLocation();
@@ -20,6 +22,27 @@ const Sidebar = () => {
 
   const [stockBadges, setStockBadges] = useState<{ low: number; out: number }>({ low: 0, out: 0 });
   const [orderBadges, setOrderBadges] = useState<{ newCount: number; preparingCount: number }>({ newCount: 0, preparingCount: 0 });
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(isOrderSoundEnabled);
+
+  useEffect(() => {
+    const onPrefChange = (e: any) => {
+      setSoundEnabled(e.detail);
+    };
+    window.addEventListener('qc-order-sound-pref-changed', onPrefChange);
+    return () => window.removeEventListener('qc-order-sound-pref-changed', onPrefChange);
+  }, []);
+
+  const handleToggleSound = () => {
+    const next = !soundEnabled;
+    setSoundEnabled(next);
+    setOrderSoundEnabled(next);
+    if (next) {
+      playOrderAlertSound(true);
+      toast.success('Order alert sound enabled 🔔');
+    } else {
+      toast('Order alert sound muted 🔕');
+    }
+  };
 
   useEffect(() => {
     document.body.classList.toggle('sidebar-collapsed', isCollapsed);
@@ -265,6 +288,20 @@ const Sidebar = () => {
 
       {/* Footer */}
       <div className="sidebar-footer">
+        <button
+          className="nav-item"
+          onClick={handleToggleSound}
+          style={{ marginBottom: 4 }}
+          title={soundEnabled ? 'Order Alert Sound: ON (Click to mute)' : 'Order Alert Sound: MUTED (Click to enable)'}
+        >
+          {soundEnabled ? (
+            <FaVolumeUp className="nav-icon" style={{ color: 'var(--accent-primary, #10b981)' }} />
+          ) : (
+            <FaVolumeMute className="nav-icon" style={{ color: 'var(--text-muted)' }} />
+          )}
+          <span className="nav-label">{soundEnabled ? 'Alerts: Sound ON' : 'Alerts: Muted'}</span>
+        </button>
+
         <button
           className="nav-item"
           onClick={toggleTheme}

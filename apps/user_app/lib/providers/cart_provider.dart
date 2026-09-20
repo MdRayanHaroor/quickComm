@@ -6,10 +6,12 @@ class CartItem {
   final String productId;
   final String? variantId;
   final String productName;
-  final String variantName;   // e.g. "500ml", "1kg", "Standard"
-  final double sellingPrice;  // price customer pays
-  final double mrp;           // original MRP (for strikethrough)
+  final String variantName; // e.g. "500ml", "1kg", "Standard"
+  final double sellingPrice; // price customer pays
+  final double mrp; // original MRP (for strikethrough)
   final String? imageUrl;
+  final String? categoryId;
+  final String? categoryName;
   int quantity;
 
   CartItem({
@@ -20,13 +22,16 @@ class CartItem {
     required this.sellingPrice,
     required this.mrp,
     this.imageUrl,
+    this.categoryId,
+    this.categoryName,
     this.quantity = 1,
   });
 
   double get lineTotal => sellingPrice * quantity;
   double get lineSavings => (mrp - sellingPrice) * quantity;
 
-  String get displayName => variantName.isNotEmpty ? '$productName — $variantName' : productName;
+  String get displayName =>
+      variantName.isNotEmpty ? '$productName — $variantName' : productName;
 }
 
 class CartProvider extends ChangeNotifier {
@@ -92,7 +97,7 @@ class CartProvider extends ChangeNotifier {
     try {
       final res = await SupabaseService.client
           .from('cart_items')
-          .select('*, products(name, image_url), product_variants(variant_name, selling_price, mrp)')
+          .select('*, products(name, image_url, category_id), product_variants(variant_name, selling_price, mrp)')
           .eq('user_id', user.id);
 
       final List<CartItem> loaded = [];
@@ -105,6 +110,7 @@ class CartProvider extends ChangeNotifier {
 
         final productName = product?['name']?.toString() ?? 'Item';
         final imageUrl = product?['image_url']?.toString();
+        final categoryId = product?['category_id']?.toString();
         final variantName = variant?['variant_name']?.toString() ?? '';
         final sellingPrice = (variant?['selling_price'] as num?)?.toDouble() ?? 0.0;
         final mrp = (variant?['mrp'] as num?)?.toDouble() ?? sellingPrice;
@@ -118,6 +124,7 @@ class CartProvider extends ChangeNotifier {
             sellingPrice: sellingPrice,
             mrp: mrp,
             imageUrl: imageUrl,
+            categoryId: categoryId,
             quantity: qty,
           ));
         }

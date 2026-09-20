@@ -5,6 +5,7 @@ import 'services/supabase_service.dart';
 import 'providers/auth_provider.dart';
 import 'providers/cart_provider.dart';
 import 'providers/location_provider.dart';
+import 'providers/recently_viewed_provider.dart';
 import 'screens/app_shell.dart';
 import 'theme/app_theme.dart';
 
@@ -24,9 +25,10 @@ class QuickCommApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => CartProvider()),
         ChangeNotifierProvider(create: (_) => LocationProvider()),
+        ChangeNotifierProvider(create: (_) => RecentlyViewedProvider()),
       ],
       child: MaterialApp(
-        title: 'QuickComm',
+        title: 'Zippy',
         theme: AppTheme.light,
         debugShowCheckedModeBanner: false,
         home: const AppShell(),

@@ -1,29 +1,99 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { toast } from 'react-hot-toast';
 import loginBg from '../assets/login-bg.png';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const navigate = useNavigate();
+
+  useEffect(() => {
+    // Check if an existing session is already an admin
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', session.user.id)
+          .maybeSingle();
+
+        if (profile?.role === 'admin') {
+          navigate('/dashboard');
+        } else {
+          await supabase.auth.signOut();
+        }
+      }
+    });
+  }, [navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage('');
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
 
-    if (error) {
-      alert(error.message);
-    } else {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        setErrorMessage(error.message);
+        toast.error(error.message);
+        setLoading(false);
+        return;
+      }
+
+      if (!data?.user) {
+        const msg = 'Failed to obtain user session.';
+        setErrorMessage(msg);
+        toast.error(msg);
+        setLoading(false);
+        return;
+      }
+
+      // Check role in profiles
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', data.user.id)
+        .maybeSingle();
+
+      if (profileError) {
+        console.error('Error fetching profile:', profileError);
+        await supabase.auth.signOut();
+        const msg = 'Failed to verify account permissions. Please try again.';
+        setErrorMessage(msg);
+        toast.error(msg);
+        setLoading(false);
+        return;
+      }
+
+      if (profile?.role !== 'admin') {
+        await supabase.auth.signOut();
+        // const roleName = profile?.role || 'user';
+        const msg = `Access denied: Only administrators can access this portal.`;
+        setErrorMessage(msg);
+        toast.error(msg);
+        setLoading(false);
+        return;
+      }
+
+      toast.success('Welcome back, Admin!');
       navigate('/dashboard');
+    } catch (err: any) {
+      console.error('Login error:', err);
+      const msg = err?.message || 'An unexpected error occurred.';
+      setErrorMessage(msg);
+      toast.error(msg);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -82,10 +152,29 @@ const Login: React.FC = () => {
         }}
       >
         <div style={{ width: '100%', maxWidth: '400px', padding: '40px' }}>
-          <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+          <div style={{ textAlign: 'center', marginBottom: '32px' }}>
             <h2 style={{ fontSize: '2.5rem', color: 'var(--accent-primary)', marginBottom: '10px' }}>Quick Comm</h2>
             <p style={{ color: 'var(--text-muted)', fontSize: '1rem' }}>Sign in to the Admin Portal</p>
           </div>
+
+          {errorMessage && (
+            <motion.div
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              style={{
+                marginBottom: '20px',
+                padding: '12px 16px',
+                backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                border: '1px solid rgba(239, 68, 68, 0.35)',
+                borderRadius: '10px',
+                color: '#f87171',
+                fontSize: '0.875rem',
+                lineHeight: 1.5,
+              }}
+            >
+              <strong>Error:</strong> {errorMessage}
+            </motion.div>
+          )}
 
           <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div>

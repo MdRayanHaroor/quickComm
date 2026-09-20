@@ -356,6 +356,7 @@ class ProductCard extends StatelessWidget {
         sellingPrice: sellingPrice,
         mrp: mrp,
         imageUrl: imageUrl,
+        categoryId: product['category_id']?.toString(),
       ));
     }
   }

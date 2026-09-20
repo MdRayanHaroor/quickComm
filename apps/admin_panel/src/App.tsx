@@ -14,12 +14,14 @@ import Settings from './pages/Settings';
 import ProtectedRoute from './components/ProtectedRoute';
 import { ThemeProvider } from './components/ThemeContext';
 import { Toaster } from 'react-hot-toast';
+import OrderNotificationListener from './components/OrderNotificationListener';
 
 function App() {
   return (
     <ThemeProvider>
       <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
       <Router>
+        <OrderNotificationListener />
         <Routes>
           <Route path="/" element={<Login />} />
 

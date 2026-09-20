@@ -3,7 +3,9 @@ import Sidebar from '../components/Sidebar';
 import { supabase } from '../supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { FaShoppingBag, FaSyncAlt } from 'react-icons/fa';
+import { FaShoppingBag, FaSyncAlt, FaVolumeUp, FaVolumeMute } from 'react-icons/fa';
+import { isOrderSoundEnabled, setOrderSoundEnabled, playOrderAlertSound } from '../utils/orderSound';
+import toast from 'react-hot-toast';
 
 interface OrderItem {
     id: number;
@@ -30,7 +32,28 @@ const Orders: React.FC = () => {
     const [riders, setRiders] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'pending' | 'preparing' | 'on_road' | 'past'>('pending');
+    const [soundEnabled, setSoundEnabled] = useState<boolean>(isOrderSoundEnabled);
     const navigate = useNavigate();
+
+    useEffect(() => {
+        const onPrefChange = (e: any) => {
+            setSoundEnabled(e.detail);
+        };
+        window.addEventListener('qc-order-sound-pref-changed', onPrefChange);
+        return () => window.removeEventListener('qc-order-sound-pref-changed', onPrefChange);
+    }, []);
+
+    const handleToggleSound = () => {
+        const next = !soundEnabled;
+        setSoundEnabled(next);
+        setOrderSoundEnabled(next);
+        if (next) {
+            playOrderAlertSound(true);
+            toast.success('Order alert sound enabled 🔔');
+        } else {
+            toast('Order alert sound muted 🔕');
+        }
+    };
 
     const fetchOrders = useCallback(async () => {
         try {
@@ -189,13 +212,30 @@ const Orders: React.FC = () => {
                                 Manage incoming orders, preparation, and rider dispatches
                             </p>
                         </div>
-                        <button
-                            onClick={fetchOrders}
-                            className="btn btn-ghost"
-                            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.88em' }}
-                        >
-                            <FaSyncAlt /> Refresh Orders
-                        </button>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                            <button
+                                onClick={handleToggleSound}
+                                className="btn btn-ghost"
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    fontSize: '0.88em',
+                                    color: soundEnabled ? 'var(--accent-primary, #10b981)' : 'var(--text-muted)'
+                                }}
+                                title={soundEnabled ? 'Order Alert Sound is Active (Click to mute)' : 'Order Alert Sound is Muted (Click to enable)'}
+                            >
+                                {soundEnabled ? <FaVolumeUp /> : <FaVolumeMute />}
+                                {soundEnabled ? 'Sound: ON' : 'Sound: Muted'}
+                            </button>
+                            <button
+                                onClick={fetchOrders}
+                                className="btn btn-ghost"
+                                style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.88em' }}
+                            >
+                                <FaSyncAlt /> Refresh Orders
+                            </button>
+                        </div>
                     </div>
 
                     {/* Status Tabs */}

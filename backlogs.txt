@@ -1,19 +1,24 @@
 after completion of existing plans
 
+rider app - 
+new order arrives play sound
+check freq of rider loc sent - optimize it make it - if distance move greater than 10 meter and or if no update sent in last 10 seconds
+
 user app - 
-add a View order dock like view cart dock with estimated delivery time and distance based on rider distance
-# show the rider assigned name in user app - "Umar is on its way" - "On way" step (FIXED: added rider name and phone in stepper step, rider banner card, and map marker)
-# in order tracking "On way" if i rider is not online it doesn't show the bike icon, but while on way is open in user app if rider comes online it should reflect it in user app immediately (FIXED: added live polling + realtime listener in order_tracking_screen)
-#save cart items in db (FIXED: added cart_items table in p8 migration and auto-sync in CartProvider)
+# increase view cart floating dock size
+# in home screen add section for "continue browsing" (save product details that user browsed in in-memory to show in this section)
 sign in with google
-deliver in time in top section should be based on OSRM not just based on lat and long diff between store and location
+"deliver in time" in top section should be based on OSRM route not just based on lat and long diff between store and location
+in cart screen show "you might also like" - show wishlisted products also
+loading animation like blinkit
+category icon
 
 admin panel - 
-while adding product - 
-# product image - must accpet url as well and apply everywhere even in mobile apps (FIXED: added URL input row, preview fallback, and cross-platform support)
+# new order arrives play sound
 Category and sub category dropdown must accept text also as a new option
-# when removing existing image ask for confirmation and delete it from blob storage as well, currently not being deleted from blob (FIXED: added confirmation prompt and selective Supabase blob deletion)
-add cancel button with confirmation (FIXED: added cancel with prompt across pending, preparing, out_for_delivery) (pending - add reason options with one of the option allowing to type and add, user should be able to see the reason, later also helpful in notifications)
+while cancelling order (pending - add reason options with one of the option allowing to type and add, user should be able to see the reason, later also helpful in notifications)
+bulk import products
+category icon
 
 wishlist a product - save in db like cart and order
 
