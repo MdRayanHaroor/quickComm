@@ -12,3 +12,4 @@ env/
 
 # Vercel
 .vercel/
+.vercel
