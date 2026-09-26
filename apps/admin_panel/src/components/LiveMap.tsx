@@ -1,23 +1,37 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import { supabase } from '../supabaseClient';
 import 'leaflet/dist/leaflet.css';
 import RiderMarker from './RiderMarker';
 import L from 'leaflet';
-import { FaStore } from 'react-icons/fa';
+import { FaStore, FaMapMarkerAlt, FaRoute } from 'react-icons/fa';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { useTheme } from './ThemeContext';
 
-// --- Custom Components ---
+// --- Custom Leaflet Components ---
 
 // 1. Component to handle map center updates
-const MapController: React.FC<{ center: [number, number], zoom?: number }> = ({ center, zoom }) => {
+const MapController: React.FC<{ center: [number, number]; zoom?: number }> = ({ center, zoom }) => {
     const map = useMap();
     useEffect(() => {
         if (center) {
             map.flyTo(center, zoom || map.getZoom());
         }
     }, [center, map]);
+    return null;
+};
+
+// 1.2 Component to automatically fit bounds to rider + destination
+const MapBoundsController: React.FC<{ bounds: [number, number][] | null }> = ({ bounds }) => {
+    const map = useMap();
+    useEffect(() => {
+        if (bounds && bounds.length >= 2) {
+            map.fitBounds(bounds as L.LatLngBoundsExpression, {
+                padding: [60, 60],
+                maxZoom: 16,
+            });
+        }
+    }, [bounds, map]);
     return null;
 };
 
@@ -31,12 +45,12 @@ const MapEvents: React.FC<{ onClick?: () => void }> = ({ onClick }) => {
     return null;
 };
 
-// 2. Component to handle "Click to Set Store" (if we enabled that mode, simplified here to just draggable marker)
-const StoreMarker: React.FC<{ position: [number, number], onDragEnd: (lat: number, lng: number) => void }> = ({ position, onDragEnd }) => {
+// 2. Component to handle Store Marker
+const StoreMarker: React.FC<{ position: [number, number]; onDragEnd: (lat: number, lng: number) => void }> = ({ position, onDragEnd }) => {
     const markerRef = useRef<any>(null);
 
     const iconHtml = renderToStaticMarkup(
-        <div style={{ color: '#ec4899', fontSize: '24px', filter: 'drop-shadow(0 2px 2px rgba(0,0,0,0.5))' }}>
+        <div style={{ color: '#ec4899', fontSize: '24px', filter: 'drop-shadow(0 2px 3px rgba(0,0,0,0.5))' }}>
             <FaStore />
         </div>
     );
@@ -66,13 +80,77 @@ const StoreMarker: React.FC<{ position: [number, number], onDragEnd: (lat: numbe
             icon={customIcon}
             ref={markerRef}
         >
-            <Popup>Main Store Location</Popup>
+            <Popup>
+                <div style={{ padding: '2px', fontWeight: 600 }}>Main Store Location</div>
+            </Popup>
         </Marker>
     );
-}
+};
+
+// 3. Component to handle Delivery Destination Marker
+const DestinationMarker: React.FC<{
+    position: [number, number];
+    orderId: number;
+    address?: string;
+    distanceKm?: number;
+    durationMins?: number;
+}> = ({ position, orderId, address, distanceKm, durationMins }) => {
+    const iconHtml = renderToStaticMarkup(
+        <div style={{
+            color: '#ef4444',
+            fontSize: '28px',
+            filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+        }}>
+            <FaMapMarkerAlt />
+        </div>
+    );
+
+    const customIcon = L.divIcon({
+        html: iconHtml,
+        className: 'custom-destination-icon',
+        iconSize: [30, 30],
+        iconAnchor: [15, 28],
+    });
+
+    return (
+        <Marker position={position} icon={customIcon}>
+            <Popup>
+                <div style={{ padding: '4px', minWidth: '170px' }}>
+                    <div style={{ fontWeight: 700, fontSize: '13px', color: '#111827', marginBottom: '4px' }}>
+                        Delivery Destination
+                    </div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#3b82f6', marginBottom: '4px' }}>
+                        Order #{orderId}
+                    </div>
+                    {address && (
+                        <div style={{ fontSize: '11.5px', color: '#4b5563', marginBottom: '6px', lineHeight: 1.3 }}>
+                            {address}
+                        </div>
+                    )}
+                    {distanceKm !== undefined && durationMins !== undefined && (
+                        <div style={{
+                            fontSize: '11px',
+                            color: '#059669',
+                            fontWeight: 700,
+                            background: '#ecfdf5',
+                            padding: '3px 6px',
+                            borderRadius: '4px',
+                            display: 'inline-block'
+                        }}>
+                            {distanceKm} km away • ~{durationMins} min ETA
+                        </div>
+                    )}
+                </div>
+            </Popup>
+        </Marker>
+    );
+};
 
 
-// --- Main LiveMap Component ---
+// --- Types ---
 
 interface RiderLocation {
   rider_id: string;
@@ -86,45 +164,190 @@ interface RiderState {
     path: [number, number][]; // Array of [lat, lng]
 }
 
+interface ActiveOrderRoute {
+    riderId: string;
+    orderId: number;
+    status: string;
+    deliveryAddress?: string;
+    deliveryPos: [number, number]; // [lat, lng]
+    routePoints: [number, number][]; // street-following road coordinates from OSRM
+    distanceKm?: number;
+    durationMins?: number;
+}
+
 interface LiveMapProps {
-    storeLocation?: { lat: number, lng: number };
+    storeLocation?: { lat: number; lng: number };
     onStoreLocationUpdate?: (lat: number, lng: number) => void;
     selectedRiderId?: string | null;
     onMapClick?: () => void;
 }
 
+// --- Main LiveMap Component ---
+
 const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, onStoreLocationUpdate, selectedRiderId, onMapClick }) => {
     const { isDark } = useTheme();
     const [riders, setRiders] = useState<Record<string, RiderState>>({});
+    const [activeRoute, setActiveRoute] = useState<ActiveOrderRoute | null>(null);
+    const [fitBounds, setFitBounds] = useState<[number, number][] | null>(null);
     const [viewCenter, setViewCenter] = useState<[number, number]>(() => {
         if (storeLocation) return [storeLocation.lat, storeLocation.lng];
         return [17.3850, 78.4867];
     });
 
-    // Focus offects
+    // Sync store center
     useEffect(() => {
         if (storeLocation) {
             setViewCenter([storeLocation.lat, storeLocation.lng]);
         }
     }, [storeLocation]);
 
-    useEffect(() => {
-        // If selected rider changes and we have their location, fly to them
-        if (selectedRiderId && riders[selectedRiderId]) {
-            const r = riders[selectedRiderId].current;
-            setViewCenter([r.lat, r.lng]);
+    // OSRM road-following route fetcher
+    const fetchOSRMRoute = useCallback(async (
+        riderId: string,
+        riderLat: number,
+        riderLng: number,
+        destLat: number,
+        destLng: number,
+        orderInfo: { id: number; status: string; delivery_address?: string }
+    ) => {
+        try {
+            // OSRM expects coordinates in {longitude},{latitude} order
+            const url = `https://router.project-osrm.org/route/v1/driving/${riderLng},${riderLat};${destLng},${destLat}?overview=full&geometries=geojson`;
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error(`OSRM HTTP ${resp.status}`);
+            const data = await resp.json();
+
+            if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+                const route = data.routes[0];
+                // Convert GeoJSON [lng, lat] to Leaflet [lat, lng]
+                const points: [number, number][] = route.geometry.coordinates.map(
+                    ([lng, lat]: [number, number]) => [lat, lng]
+                );
+
+                const distKm = parseFloat((route.distance / 1000).toFixed(1));
+                const durMin = Math.ceil(route.duration / 60);
+
+                setActiveRoute({
+                    riderId,
+                    orderId: orderInfo.id,
+                    status: orderInfo.status,
+                    deliveryAddress: orderInfo.delivery_address,
+                    deliveryPos: [destLat, destLng],
+                    routePoints: points,
+                    distanceKm: distKm,
+                    durationMins: durMin,
+                });
+
+                // Auto-fit bounds so dispatcher sees entire route
+                setFitBounds([[riderLat, riderLng], [destLat, destLng]]);
+            }
+        } catch (e) {
+            console.warn('OSRM route fetch failed, falling back to direct line:', e);
+            setActiveRoute({
+                riderId,
+                orderId: orderInfo.id,
+                status: orderInfo.status,
+                deliveryAddress: orderInfo.delivery_address,
+                deliveryPos: [destLat, destLng],
+                routePoints: [[riderLat, riderLng], [destLat, destLng]],
+            });
+            setFitBounds([[riderLat, riderLng], [destLat, destLng]]);
         }
-    }, [selectedRiderId, riders]);
+    }, []);
 
-
-    const handleResetLocation = () => {
-        if (storeLocation) {
-            setViewCenter([storeLocation.lat, storeLocation.lng]);
-        }
-    };
-
+    // Fetch active order and route when a rider is selected
     useEffect(() => {
-        // 1. Fetch initial locations
+        // Instantly clear any previously selected rider's active route to avoid stale display
+        setActiveRoute(null);
+        setFitBounds(null);
+
+        if (!selectedRiderId) {
+            return;
+        }
+
+        const currentRiderId = selectedRiderId;
+        let isMounted = true;
+
+        const loadActiveOrder = async () => {
+            try {
+                // Fetch the rider's currently assigned active order
+                const { data: order, error } = await supabase
+                    .from('orders')
+                    .select('id, status, delivery_lat, delivery_lng, delivery_address')
+                    .eq('rider_id', currentRiderId)
+                    .neq('status', 'delivered')
+                    .neq('status', 'cancelled')
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+
+                if (!isMounted) return;
+
+                if (error || !order || !order.delivery_lat || !order.delivery_lng) {
+                    // No active delivery for this rider — ensure route HUD stays hidden
+                    setActiveRoute(null);
+                    setFitBounds(null);
+                    const r = riders[currentRiderId]?.current;
+                    if (r) setViewCenter([r.lat, r.lng]);
+                    return;
+                }
+
+                const riderCurrent = riders[currentRiderId]?.current;
+                if (riderCurrent) {
+                    await fetchOSRMRoute(
+                        currentRiderId,
+                        riderCurrent.lat,
+                        riderCurrent.lng,
+                        order.delivery_lat,
+                        order.delivery_lng,
+                        order
+                    );
+                } else {
+                    setActiveRoute({
+                        riderId: currentRiderId,
+                        orderId: order.id,
+                        status: order.status,
+                        deliveryAddress: order.delivery_address,
+                        deliveryPos: [order.delivery_lat, order.delivery_lng],
+                        routePoints: [],
+                    });
+                }
+            } catch (err) {
+                console.error('Error fetching active rider order:', err);
+                if (isMounted) setActiveRoute(null);
+            }
+        };
+
+        loadActiveOrder();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [selectedRiderId, fetchOSRMRoute]);
+
+    // Update route dynamically as the selected rider moves (only if this rider owns the route)
+    useEffect(() => {
+        if (!selectedRiderId || !activeRoute || activeRoute.riderId !== selectedRiderId) return;
+        const riderPos = riders[selectedRiderId]?.current;
+        if (!riderPos) return;
+
+        fetchOSRMRoute(
+            selectedRiderId,
+            riderPos.lat,
+            riderPos.lng,
+            activeRoute.deliveryPos[0],
+            activeRoute.deliveryPos[1],
+            { id: activeRoute.orderId, status: activeRoute.status, delivery_address: activeRoute.deliveryAddress }
+        );
+    }, [
+        selectedRiderId,
+        activeRoute?.riderId,
+        riders[selectedRiderId || '']?.current?.lat,
+        riders[selectedRiderId || '']?.current?.lng,
+    ]);
+
+    // Initial rider locations fetch & realtime subscription
+    useEffect(() => {
         const fetchInitialLocations = async () => {
             const { data } = await supabase.from('rider_locations').select('*');
             if (data) {
@@ -143,12 +366,10 @@ const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, onStoreLocationUpdate,
 
         fetchInitialLocations();
 
-        // 2. Subscribe to POSTGRES CHANGES (Correct way)
-        const channel = supabase.channel('public:rider_locations:map') // Unique channel name
+        const channel = supabase.channel('public:rider_locations:map')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'rider_locations' }, (payload) => {
                 const newLoc = payload.new as RiderLocation;
                 if (!newLoc) return;
-                console.log("Map Update:", newLoc);
 
                 setRiders(prev => {
                     const riderState = prev[newLoc.rider_id];
@@ -174,8 +395,21 @@ const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, onStoreLocationUpdate,
         };
     }, []);
 
-    // Filter displayed riders - ALWAYS show all riders
+    const handleResetLocation = () => {
+        if (storeLocation) {
+            setViewCenter([storeLocation.lat, storeLocation.lng]);
+        }
+    };
+
+    const handleFitActiveRoute = () => {
+        if (activeRoute && selectedRiderId && riders[selectedRiderId]?.current) {
+            const r = riders[selectedRiderId].current;
+            setFitBounds([[r.lat, r.lng], activeRoute.deliveryPos]);
+        }
+    };
+
     const displayedRiders = Object.values(riders);
+    const hasActiveRouteForSelected = !!(activeRoute && selectedRiderId && activeRoute.riderId === selectedRiderId);
 
     return (
         <MapContainer 
@@ -185,6 +419,7 @@ const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, onStoreLocationUpdate,
             attributionControl={false}
         >
             <MapController center={viewCenter} />
+            <MapBoundsController bounds={fitBounds} />
             <MapEvents onClick={onMapClick} />
             
             <TileLayer
@@ -204,30 +439,159 @@ const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, onStoreLocationUpdate,
                 />
             )}
 
-            {/* Riders */}
-            {displayedRiders.map((riderState) => (
-                <React.Fragment key={riderState.current.rider_id}>
+            {/* Active Delivery Route & Destination (Strictly for the selected rider with an active delivery) */}
+            {hasActiveRouteForSelected && activeRoute.routePoints.length > 0 && (
+                <>
+                    {/* Road-following glow polyline */}
                     <Polyline 
-                        positions={riderState.path} 
-                        pathOptions={{ color: '#3b82f6', weight: 4, opacity: 0.7 }} 
+                        positions={activeRoute.routePoints} 
+                        pathOptions={{ 
+                            color: '#10b981', 
+                            weight: 6, 
+                            opacity: 0.85,
+                            lineCap: 'round',
+                            lineJoin: 'round',
+                        }} 
                     />
-                    <RiderMarker 
-                        id={riderState.current.rider_id}
-                        position={{ lat: riderState.current.lat, lng: riderState.current.lng }}
-                        previousPosition={riderState.previous ? { lat: riderState.previous.lat, lng: riderState.previous.lng } : undefined}
+                    {/* Inner dash accent */}
+                    <Polyline 
+                        positions={activeRoute.routePoints} 
+                        pathOptions={{ 
+                            color: '#ffffff', 
+                            weight: 2, 
+                            dashArray: '6, 8',
+                            opacity: 0.9,
+                        }} 
                     />
-                </React.Fragment>
-            ))}
+                    {/* Destination Marker */}
+                    <DestinationMarker 
+                        position={activeRoute.deliveryPos}
+                        orderId={activeRoute.orderId}
+                        address={activeRoute.deliveryAddress}
+                        distanceKm={activeRoute.distanceKm}
+                        durationMins={activeRoute.durationMins}
+                    />
+                </>
+            )}
 
-            {/* Reset Location Button Overlay */}
+            {/* All Riders & their historical trails */}
+            {displayedRiders.map((riderState) => {
+                const isSelected = selectedRiderId === riderState.current.rider_id;
+                return (
+                    <React.Fragment key={riderState.current.rider_id}>
+                        {/* Historical Trail */}
+                        <Polyline 
+                            positions={riderState.path} 
+                            pathOptions={{ 
+                                color: isSelected ? '#2563eb' : '#3b82f6', 
+                                weight: isSelected ? 4 : 3, 
+                                opacity: isSelected ? 0.8 : 0.4,
+                                dashArray: isSelected ? undefined : '4, 6',
+                            }} 
+                        />
+                        {/* Current Rider Marker */}
+                        <RiderMarker 
+                            id={riderState.current.rider_id}
+                            position={{ lat: riderState.current.lat, lng: riderState.current.lng }}
+                            previousPosition={riderState.previous ? { lat: riderState.previous.lat, lng: riderState.previous.lng } : undefined}
+                        />
+                    </React.Fragment>
+                );
+            })}
+
+            {/* Active Route HUD Overlay (Increased width and strict active rider ownership check) */}
+            {hasActiveRouteForSelected && (
+                <div style={{
+                    position: 'absolute',
+                    top: 20,
+                    left: 20,
+                    zIndex: 1000,
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-lg)',
+                    padding: '12px 18px',
+                    boxShadow: 'var(--shadow-lg)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '6px',
+                    width: '380px',
+                    maxWidth: 'calc(100vw - 40px)',
+                    backdropFilter: 'blur(10px)',
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13.5px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                            <FaRoute color="#10b981" size={15} />
+                            <span>Active Route (Order #{activeRoute.orderId})</span>
+                        </div>
+                        <span style={{
+                            fontSize: '10.5px',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            background: '#dcfce7',
+                            color: '#15803d',
+                            padding: '3px 8px',
+                            borderRadius: '999px',
+                            letterSpacing: '0.3px',
+                        }}>
+                            {activeRoute.status.replace(/_/g, ' ')}
+                        </span>
+                    </div>
+
+                    {activeRoute.distanceKm !== undefined && activeRoute.durationMins !== undefined && (
+                        <div style={{ fontSize: '12.5px', color: '#059669', fontWeight: 600 }}>
+                            {activeRoute.distanceKm} km remaining • ~{activeRoute.durationMins} mins ETA
+                        </div>
+                    )}
+
+                    {activeRoute.deliveryAddress && (
+                        <div style={{
+                            fontSize: '11.5px',
+                            color: 'var(--text-muted)',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            lineHeight: 1.4,
+                        }}>
+                            📍 {activeRoute.deliveryAddress}
+                        </div>
+                    )}
+
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                        <button
+                            onClick={handleFitActiveRoute}
+                            style={{
+                                background: '#10b981',
+                                color: '#ffffff',
+                                border: 'none',
+                                borderRadius: 'var(--radius-sm)',
+                                padding: '5px 10px',
+                                fontSize: '11.5px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                            }}
+                        >
+                            Fit Route View
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Map Action Buttons Overlay */}
             <div style={{
                 position: 'absolute',
-                top: 100, // Below the "Live Tracking" box (20+height)
+                top: 20,
                 right: 20,
                 zIndex: 1000,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
             }}>
                 <button
                     onClick={handleResetLocation}
+                    title="Center on Store"
                     style={{
                         background: 'var(--bg-surface)',
                         color: 'var(--text-primary)',
@@ -240,7 +604,7 @@ const LiveMap: React.FC<LiveMapProps> = ({ storeLocation, onStoreLocationUpdate,
                         gap: '6px',
                         fontSize: '12px',
                         fontWeight: 600,
-                        boxShadow: 'var(--shadow-md)'
+                        boxShadow: 'var(--shadow-md)',
                     }}
                 >
                     <svg stroke="currentColor" fill="none" strokeWidth="2" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>

@@ -3,7 +3,7 @@ import Sidebar from '../components/Sidebar';
 import { supabase } from '../supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { FaShoppingBag, FaSyncAlt, FaVolumeUp, FaVolumeMute } from 'react-icons/fa';
+import { FaShoppingBag, FaSyncAlt, FaVolumeUp, FaVolumeMute, FaFilter, FaSearch, FaTimes, FaCalendarAlt } from 'react-icons/fa';
 import { isOrderSoundEnabled, setOrderSoundEnabled, playOrderAlertSound } from '../utils/orderSound';
 import toast from 'react-hot-toast';
 
@@ -34,6 +34,16 @@ const Orders: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'pending' | 'preparing' | 'on_road' | 'past'>('pending');
     const [soundEnabled, setSoundEnabled] = useState<boolean>(isOrderSoundEnabled);
     const navigate = useNavigate();
+
+    // Past Orders Filters & Sorting State
+    const [pastRiderFilter, setPastRiderFilter] = useState<string>('all');
+    const [pastStatusFilter, setPastStatusFilter] = useState<string>('all');
+    const [pastStartDate, setPastStartDate] = useState<string>('');
+    const [pastEndDate, setPastEndDate] = useState<string>('');
+    const [pastMinAmount, setPastMinAmount] = useState<string>('');
+    const [pastMaxAmount, setPastMaxAmount] = useState<string>('');
+    const [pastSort, setPastSort] = useState<string>('latest');
+    const [pastSearch, setPastSearch] = useState<string>('');
 
     useEffect(() => {
         const onPrefChange = (e: any) => {
@@ -166,13 +176,98 @@ const Orders: React.FC = () => {
     };
 
     const getFilteredOrders = () => {
-        return orders.filter(order => {
+        let list = orders.filter(order => {
             if (activeTab === 'pending') return order.status === 'pending';
             if (activeTab === 'preparing') return order.status === 'confirmed';
             if (activeTab === 'on_road') return order.status === 'out_for_delivery';
             if (activeTab === 'past') return ['delivered', 'cancelled'].includes(order.status);
             return false;
         });
+
+        // Apply filters only for Past Orders tab
+        if (activeTab === 'past') {
+            // 1. Rider Filter
+            if (pastRiderFilter !== 'all') {
+                if (pastRiderFilter === 'unassigned') {
+                    list = list.filter(o => !o.rider_id);
+                } else {
+                    list = list.filter(o => o.rider_id === pastRiderFilter);
+                }
+            }
+
+            // 2. Status sub-filter
+            if (pastStatusFilter !== 'all') {
+                list = list.filter(o => o.status === pastStatusFilter);
+            }
+
+            // 3. Search filter (Order ID or address)
+            if (pastSearch.trim()) {
+                const q = pastSearch.trim().toLowerCase();
+                list = list.filter(o =>
+                    o.id.toString().includes(q) ||
+                    (o.delivery_address && o.delivery_address.toLowerCase().includes(q))
+                );
+            }
+
+            // 4. Date Range filter
+            if (pastStartDate) {
+                const start = new Date(pastStartDate);
+                start.setHours(0, 0, 0, 0);
+                list = list.filter(o => new Date(o.created_at) >= start);
+            }
+            if (pastEndDate) {
+                const end = new Date(pastEndDate);
+                end.setHours(23, 59, 59, 999);
+                list = list.filter(o => new Date(o.created_at) <= end);
+            }
+
+            // 5. Total Order Amount filter
+            const minAmt = parseFloat(pastMinAmount);
+            if (!isNaN(minAmt)) {
+                list = list.filter(o => (o.total_amount || 0) >= minAmt);
+            }
+            const maxAmt = parseFloat(pastMaxAmount);
+            if (!isNaN(maxAmt)) {
+                list = list.filter(o => (o.total_amount || 0) <= maxAmt);
+            }
+
+            // 6. Sorting
+            list = [...list].sort((a, b) => {
+                if (pastSort === 'oldest') {
+                    return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+                }
+                if (pastSort === 'amount_high') {
+                    return (b.total_amount || 0) - (a.total_amount || 0);
+                }
+                if (pastSort === 'amount_low') {
+                    return (a.total_amount || 0) - (b.total_amount || 0);
+                }
+                // default: latest
+                return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+            });
+        }
+
+        return list;
+    };
+
+    const hasActivePastFilters = pastRiderFilter !== 'all' ||
+        pastStatusFilter !== 'all' ||
+        pastStartDate !== '' ||
+        pastEndDate !== '' ||
+        pastMinAmount !== '' ||
+        pastMaxAmount !== '' ||
+        pastSearch !== '' ||
+        pastSort !== 'latest';
+
+    const handleResetPastFilters = () => {
+        setPastRiderFilter('all');
+        setPastStatusFilter('all');
+        setPastStartDate('');
+        setPastEndDate('');
+        setPastMinAmount('');
+        setPastMaxAmount('');
+        setPastSort('latest');
+        setPastSearch('');
     };
 
     const getTabCount = (tab: 'pending' | 'preparing' | 'on_road' | 'past') => {
@@ -291,6 +386,242 @@ const Orders: React.FC = () => {
 
                 {/* Orders Feed */}
                 <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px 32px' }}>
+                    {/* Past Orders Filter Toolbar */}
+                    {activeTab === 'past' && (
+                        <div style={{
+                            background: 'var(--bg-surface)',
+                            border: '1px solid var(--border)',
+                            borderRadius: 'var(--radius-lg)',
+                            padding: '16px 20px',
+                            marginBottom: 20,
+                            boxShadow: 'var(--shadow-xs)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 12,
+                        }}>
+                            {/* Top row: search, rider, status, sorting */}
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+                                {/* Search */}
+                                <div style={{ flex: '1 1 200px', minWidth: '180px', position: 'relative' }}>
+                                    <input
+                                        type="text"
+                                        placeholder="Search Order # or Address..."
+                                        value={pastSearch}
+                                        onChange={(e) => setPastSearch(e.target.value)}
+                                        style={{
+                                            width: '100%',
+                                            padding: '8px 12px',
+                                            borderRadius: 'var(--radius-md)',
+                                            border: '1px solid var(--border)',
+                                            background: 'var(--bg-input)',
+                                            color: 'var(--text-primary)',
+                                            fontSize: '0.85rem',
+                                        }}
+                                    />
+                                </div>
+
+                                {/* Rider Filter */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>Rider:</label>
+                                    <select
+                                        value={pastRiderFilter}
+                                        onChange={(e) => setPastRiderFilter(e.target.value)}
+                                        style={{
+                                            padding: '8px 12px',
+                                            borderRadius: 'var(--radius-md)',
+                                            border: '1px solid var(--border)',
+                                            background: 'var(--bg-input)',
+                                            color: 'var(--text-primary)',
+                                            fontSize: '0.85rem',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        <option value="all">All Riders</option>
+                                        <option value="unassigned">Unassigned</option>
+                                        {riders.map(r => (
+                                            <option key={r.id} value={r.id}>{r.full_name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Status Filter */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>Status:</label>
+                                    <select
+                                        value={pastStatusFilter}
+                                        onChange={(e) => setPastStatusFilter(e.target.value)}
+                                        style={{
+                                            padding: '8px 12px',
+                                            borderRadius: 'var(--radius-md)',
+                                            border: '1px solid var(--border)',
+                                            background: 'var(--bg-input)',
+                                            color: 'var(--text-primary)',
+                                            fontSize: '0.85rem',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        <option value="all">All Past (Delivered &amp; Cancelled)</option>
+                                        <option value="delivered">Delivered Only</option>
+                                        <option value="cancelled">Cancelled Only</option>
+                                    </select>
+                                </div>
+
+                                {/* Sort Filter */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+                                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>Sort:</label>
+                                    <select
+                                        value={pastSort}
+                                        onChange={(e) => setPastSort(e.target.value)}
+                                        style={{
+                                            padding: '8px 12px',
+                                            borderRadius: 'var(--radius-md)',
+                                            border: '1px solid var(--border)',
+                                            background: 'var(--bg-input)',
+                                            color: 'var(--text-primary)',
+                                            fontSize: '0.85rem',
+                                            cursor: 'pointer',
+                                            fontWeight: 600,
+                                        }}
+                                    >
+                                        <option value="latest">Latest First (Default)</option>
+                                        <option value="oldest">Oldest First</option>
+                                        <option value="amount_high">Highest Amount (₹)</option>
+                                        <option value="amount_low">Lowest Amount (₹)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Bottom row: Date range & Amount range & Results Count (Strictly in one row) */}
+                            <div style={{
+                                display: 'flex',
+                                flexWrap: 'nowrap',
+                                gap: 18,
+                                alignItems: 'center',
+                                paddingTop: 12,
+                                borderTop: '1px solid var(--border)',
+                                overflowX: 'auto',
+                                whiteSpace: 'nowrap',
+                            }}>
+                                {/* Date Range */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'nowrap' }}>
+                                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Date:</span>
+                                    <input
+                                        type="date"
+                                        value={pastStartDate}
+                                        onChange={(e) => setPastStartDate(e.target.value)}
+                                        style={{
+                                            width: '135px',
+                                            minWidth: '135px',
+                                            maxWidth: '135px',
+                                            padding: '6px 10px',
+                                            borderRadius: 'var(--radius-md)',
+                                            border: '1px solid var(--border)',
+                                            background: 'var(--bg-input)',
+                                            color: 'var(--text-primary)',
+                                            fontSize: '0.82rem',
+                                            flexShrink: 0,
+                                        }}
+                                        title="Start Date"
+                                    />
+                                    <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>to</span>
+                                    <input
+                                        type="date"
+                                        value={pastEndDate}
+                                        onChange={(e) => setPastEndDate(e.target.value)}
+                                        style={{
+                                            width: '135px',
+                                            minWidth: '135px',
+                                            maxWidth: '135px',
+                                            padding: '6px 10px',
+                                            borderRadius: 'var(--radius-md)',
+                                            border: '1px solid var(--border)',
+                                            background: 'var(--bg-input)',
+                                            color: 'var(--text-primary)',
+                                            fontSize: '0.82rem',
+                                            flexShrink: 0,
+                                        }}
+                                        title="End Date"
+                                    />
+                                </div>
+
+                                <div style={{ height: '18px', width: '1px', background: 'var(--border)', flexShrink: 0 }} />
+
+                                {/* Order Amount Range */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'nowrap' }}>
+                                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Amount (₹):</span>
+                                    <input
+                                        type="number"
+                                        placeholder="Min ₹"
+                                        min="0"
+                                        value={pastMinAmount}
+                                        onChange={(e) => setPastMinAmount(e.target.value)}
+                                        style={{
+                                            width: '80px',
+                                            minWidth: '80px',
+                                            maxWidth: '80px',
+                                            padding: '6px 8px',
+                                            borderRadius: 'var(--radius-md)',
+                                            border: '1px solid var(--border)',
+                                            background: 'var(--bg-input)',
+                                            color: 'var(--text-primary)',
+                                            fontSize: '0.82rem',
+                                            flexShrink: 0,
+                                        }}
+                                    />
+                                    <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>–</span>
+                                    <input
+                                        type="number"
+                                        placeholder="Max ₹"
+                                        min="0"
+                                        value={pastMaxAmount}
+                                        onChange={(e) => setPastMaxAmount(e.target.value)}
+                                        style={{
+                                            width: '80px',
+                                            minWidth: '80px',
+                                            maxWidth: '80px',
+                                            padding: '6px 8px',
+                                            borderRadius: 'var(--radius-md)',
+                                            border: '1px solid var(--border)',
+                                            background: 'var(--bg-input)',
+                                            color: 'var(--text-primary)',
+                                            fontSize: '0.82rem',
+                                            flexShrink: 0,
+                                        }}
+                                    />
+                                </div>
+
+                                {/* Results count & Reset button */}
+                                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'nowrap' }}>
+                                    <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                                        Showing <strong>{filteredOrders.length}</strong> {filteredOrders.length === 1 ? 'order' : 'orders'}
+                                    </span>
+                                    {hasActivePastFilters && (
+                                        <button
+                                            onClick={handleResetPastFilters}
+                                            style={{
+                                                background: 'transparent',
+                                                color: 'var(--danger)',
+                                                border: '1px solid var(--danger)',
+                                                borderRadius: 'var(--radius-sm)',
+                                                padding: '4px 10px',
+                                                fontSize: '0.78rem',
+                                                fontWeight: 600,
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 4,
+                                                whiteSpace: 'nowrap',
+                                                flexShrink: 0,
+                                            }}
+                                        >
+                                            Reset Filters ✕
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {loading ? (
                         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 200, color: 'var(--text-muted)' }}>
                             Loading live orders...
@@ -298,8 +629,17 @@ const Orders: React.FC = () => {
                     ) : filteredOrders.length === 0 ? (
                         <div className="empty-state">
                             <FaShoppingBag style={{ fontSize: 40, color: 'var(--text-muted)', marginBottom: 12 }} />
-                            <h3>No orders in this status</h3>
-                            <p>Orders will automatically appear here when placed</p>
+                            <h3>{activeTab === 'past' && hasActivePastFilters ? 'No past orders match your filters' : 'No orders in this status'}</h3>
+                            <p>{activeTab === 'past' && hasActivePastFilters ? 'Try adjusting your date range, rider, or amount filters.' : 'Orders will automatically appear here when placed'}</p>
+                            {activeTab === 'past' && hasActivePastFilters && (
+                                <button
+                                    onClick={handleResetPastFilters}
+                                    className="btn btn-primary"
+                                    style={{ marginTop: 12, padding: '6px 16px', fontSize: '0.85rem' }}
+                                >
+                                    Clear Filters
+                                </button>
+                            )}
                         </div>
                     ) : (
                         <div style={{ display: 'grid', gap: 16 }}>

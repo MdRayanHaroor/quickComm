@@ -1,10 +1,10 @@
 Current backlog - 
 
 rider app - 
-p0 - new order arrives play sound
-p0 - show full order details
-p0 - show ordering person name and contact - to contact if required
-p0 - in order history - ability to open one and check full details
+[DONE] p0 - new order arrives play sound
+[DONE] p0 - show full order details
+[DONE] p0 - show ordering person name and contact - to contact if required
+[DONE] p0 - in order history - ability to open one and check full details
 later when required - check freq of rider loc sent - optimize it make it - if distance move greater than 10 meter and or if no update sent in last 10 seconds
 
 user app - 
@@ -35,33 +35,3 @@ p2 - Delivery rider rating - dont show if no rating added, if added show avg of 
 p2 - product rating - show five start if no ratings added if ratings added for a product show its avg 
 
 ---------------------------
-
-## Phase 8 — Production Hardening 🛡️
-
-**Goal:** Make it production-ready  
-**Duration estimate:** Ongoing
-
-### Tasks
-
-- [ ] **8.1** Supabase Storage CDN — ensure images have proper caching headers
-- [ ] **8.2** Input validation — server-side validation for all new endpoints
-- [ ] **8.3** Admin-only endpoint protection — verify role check on all write endpoints
-- [ ] **8.4** Pagination on all list endpoints (no unbounded queries)
-- [ ] **8.5** Error handling — consistent error response format
-- [ ] **8.6** Rate limiting on upload endpoints
-- [ ] **8.7** Full-text search on products — add PostgreSQL `tsvector` index
-- [ ] **8.8** Write a `TESTING.md` with manual test checklist
-
------------------------
-
-
-## 3. Admin Panel (React/Vite)
-
-### Map & Routing Enhancements
-*   **Goal:** Provide fleet managers a clear view of an active rider's route, matching the functionality recently added to the User App.
-*   **Technical Details:**
-    *   **File:** `apps/admin_panel/src/components/LiveMap.tsx`
-    *   **Current State:** The map only drops a polyline connecting raw historical coordinates.
-    *   **Improvement:** When `selectedRiderId` is active, fetch the rider's currently assigned active order from Supabase to obtain `delivery_lat` and `delivery_lng`.
-    *   **OSRM Integration:** Implement a `fetchRoute()` function in React that calls the Open Source Routing Machine (OSRM) API (`https://router.project-osrm.org/route/v1/driving/{rider_lng},{rider_lat};{delivery_lng},{delivery_lat}?overview=full&geometries=geojson`).
-    *   **Rendering:** Extract the GeoJSON coordinates from the OSRM response and feed them into a React-Leaflet `<Polyline>` to display the actual street-following route from the rider to the destination.
