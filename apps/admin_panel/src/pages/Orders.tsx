@@ -3,7 +3,7 @@ import Sidebar from '../components/Sidebar';
 import { supabase } from '../supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { FaShoppingBag, FaSyncAlt, FaVolumeUp, FaVolumeMute, FaFilter, FaSearch, FaTimes, FaCalendarAlt } from 'react-icons/fa';
+import { FaShoppingBag, FaSyncAlt, FaVolumeUp, FaVolumeMute } from 'react-icons/fa';
 import { isOrderSoundEnabled, setOrderSoundEnabled, playOrderAlertSound } from '../utils/orderSound';
 import toast from 'react-hot-toast';
 
