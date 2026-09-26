@@ -1,13 +1,18 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from database import admin_supabase as supabase
 from models import LowStockItem, BulkStockAdjust
+from auth import get_current_admin
 from typing import List, Optional
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
 
 @router.get("/all")
-def get_all_inventory(store_id: int = Query(1), search: Optional[str] = Query(None)):
+def get_all_inventory(
+    store_id: int = Query(1),
+    search: Optional[str] = Query(None),
+    admin: dict = Depends(get_current_admin),
+):
     """Returns all variants with product name, category name, stock, and thresholds."""
     all_variants = (
         supabase.from_("product_variants")
@@ -45,20 +50,11 @@ def get_all_inventory(store_id: int = Query(1), search: Optional[str] = Query(No
 
 
 @router.get("/low-stock")
-def get_low_stock(store_id: int = Query(1)):
+def get_low_stock(store_id: int = Query(1), admin: dict = Depends(get_current_admin)):
     """
     Returns all variants where stock_quantity <= low_stock_alert.
     Joins with products to include product name.
     """
-    response = (
-        supabase.from_("product_variants")
-        .select("id, product_id, variant_name, stock_quantity, low_stock_alert, products(name, store_id)")
-        .lte("stock_quantity", supabase.from_("product_variants").select("low_stock_alert"))  # workaround below
-        .execute()
-    )
-
-    # Supabase JS SDK doesn't support column-to-column comparisons in Python client
-    # Use raw filter instead
     all_variants = (
         supabase.from_("product_variants")
         .select("id, product_id, variant_name, stock_quantity, low_stock_alert, products(id, name, store_id)")
@@ -83,7 +79,7 @@ def get_low_stock(store_id: int = Query(1)):
 
 
 @router.get("/out-of-stock")
-def get_out_of_stock(store_id: int = Query(1)):
+def get_out_of_stock(store_id: int = Query(1), admin: dict = Depends(get_current_admin)):
     """Returns all variants with 0 stock."""
     all_variants = (
         supabase.from_("product_variants")
@@ -109,7 +105,7 @@ def get_out_of_stock(store_id: int = Query(1)):
 
 
 @router.post("/adjust")
-def bulk_adjust_stock(payload: BulkStockAdjust):
+def bulk_adjust_stock(payload: BulkStockAdjust, admin: dict = Depends(get_current_admin)):
     """
     Bulk stock adjustment. Each entry:
     - positive quantity = restock
@@ -148,7 +144,7 @@ def bulk_adjust_stock(payload: BulkStockAdjust):
 
 
 @router.get("/summary")
-def get_inventory_summary(store_id: int = Query(1)):
+def get_inventory_summary(store_id: int = Query(1), admin: dict = Depends(get_current_admin)):
     """High-level inventory health stats."""
     all_variants = (
         supabase.from_("product_variants")

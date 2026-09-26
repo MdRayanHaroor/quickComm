@@ -91,6 +91,14 @@ class BrandBase(BaseModel):
     logo_url: Optional[str] = None
     is_active: bool = True
 
+    @field_validator('name')
+    @classmethod
+    def name_not_empty(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError('Brand name cannot be empty')
+        return s
+
 class BrandCreate(BrandBase):
     store_id: int = 1
 
@@ -119,6 +127,14 @@ class CategoryBase(BaseModel):
     image_url: Optional[str] = None
     sort_order: int = 0
     is_active: bool = True
+
+    @field_validator('name')
+    @classmethod
+    def name_not_empty(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError('Category name cannot be empty')
+        return s
 
 class CategoryCreate(CategoryBase):
     store_id: int = 1
@@ -164,12 +180,36 @@ class ProductVariantBase(BaseModel):
     sku: Optional[str] = None
     barcode: Optional[str] = None
 
+    @field_validator('variant_name')
+    @classmethod
+    def variant_name_not_empty(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError('Variant name cannot be empty')
+        return s
+
+    @field_validator('mrp')
+    @classmethod
+    def mrp_non_negative(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError(f'mrp cannot be negative ({v})')
+        return round(v, 2)
+
     @field_validator('selling_price')
     @classmethod
-    def selling_price_lte_mrp(cls, v: float, info: Any) -> float:
+    def selling_price_validate(cls, v: float, info: Any) -> float:
+        if v < 0:
+            raise ValueError(f'selling_price cannot be negative ({v})')
         mrp = info.data.get('mrp')
         if mrp is not None and v > mrp:
             raise ValueError(f'selling_price ({v}) cannot exceed mrp ({mrp})')
+        return round(v, 2)
+
+    @field_validator('stock_quantity', 'low_stock_alert')
+    @classmethod
+    def quantity_non_negative(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError(f'Quantity must be >= 0 (got {v})')
         return v
 
 class ProductVariantCreate(ProductVariantBase):
@@ -188,6 +228,20 @@ class ProductVariantUpdate(BaseModel):
     sort_order: Optional[int] = None
     sku: Optional[str] = None
     barcode: Optional[str] = None
+
+    @field_validator('mrp', 'selling_price')
+    @classmethod
+    def update_prices_non_negative(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None and v < 0:
+            raise ValueError('Price cannot be negative')
+        return round(v, 2) if v is not None else None
+
+    @field_validator('stock_quantity', 'low_stock_alert')
+    @classmethod
+    def update_quantity_non_negative(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and v < 0:
+            raise ValueError('Quantity must be >= 0')
+        return v
 
 class ProductVariant(ProductVariantBase):
     id: int
@@ -209,6 +263,13 @@ class StockAdjust(BaseModel):
     variant_id: int
     quantity: int   # positive = add stock, negative = remove
 
+    @field_validator('quantity')
+    @classmethod
+    def quantity_not_zero(cls, v: int) -> int:
+        if v == 0:
+            raise ValueError('Adjustment quantity cannot be zero')
+        return v
+
 
 # ============================================================
 # Product Models
@@ -227,6 +288,21 @@ class ProductBase(BaseModel):
     image_url: Optional[str] = None   # deprecated legacy field
     gst_rate: float = 0
     is_available: bool = True
+
+    @field_validator('name')
+    @classmethod
+    def name_not_empty(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError('Product name cannot be empty')
+        return s
+
+    @field_validator('gst_rate')
+    @classmethod
+    def gst_rate_valid(cls, v: float) -> float:
+        if v not in (0.0, 5.0, 12.0, 18.0, 28.0):
+            raise ValueError(f'Invalid GST rate {v}. Allowed rates: 0, 5, 12, 18, 28')
+        return v
 
 class ProductCreate(ProductBase):
     pass
@@ -259,9 +335,11 @@ class ProductListItem(BaseModel):
     id: int
     name: str
     slug: Optional[str] = None
+    description: Optional[str] = None
     category_id: Optional[int] = None
     brand_id: Optional[int] = None
     is_available: bool
+    tags: Optional[List[str]] = []
     images: List[str] = []
     image_url: Optional[str] = None
     gst_rate: float = 0

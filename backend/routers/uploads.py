@@ -1,5 +1,7 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Path
+from fastapi import APIRouter, HTTPException, UploadFile, File, Path, Depends
 from database import admin_supabase
+from auth import get_current_admin
+from rate_limiter import upload_rate_limiter
 from typing import Optional
 import uuid
 import os
@@ -18,7 +20,7 @@ def _validate_image(file: UploadFile):
     if file.content_type not in ALLOWED_TYPES:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid file type '{file.content_type}'. Allowed: JPG, PNG, WebP, GIF"
+            detail=f"Invalid file type '{file.content_type}'. Allowed: JPG, PNG, WebP, GIF",
         )
 
 
@@ -28,7 +30,7 @@ def _get_ext(filename: str) -> str:
 
 
 async def _upload_to_storage(bucket: str, path: str, file: UploadFile) -> str:
-    """Upload a file to Supabase Storage and return its public URL."""
+    """Upload a file to Supabase Storage with CDN caching headers and return its public URL."""
     content = await file.read()
 
     if len(content) > MAX_FILE_SIZE:
@@ -39,7 +41,11 @@ async def _upload_to_storage(bucket: str, path: str, file: UploadFile) -> str:
         client.storage.from_(bucket).upload(
             path=path,
             file=content,
-            file_options={"content-type": file.content_type, "upsert": "true"},
+            file_options={
+                "content-type": file.content_type,
+                "cache-control": "31536000",  # 1 year CDN edge & client disk cache (Task 8.1)
+                "upsert": "true",
+            },
         )
         public_url = client.storage.from_(bucket).get_public_url(path)
         return public_url
@@ -55,6 +61,8 @@ async def _upload_to_storage(bucket: str, path: str, file: UploadFile) -> str:
 async def upload_product_image(
     product_id: int = Path(...),
     file: UploadFile = File(...),
+    admin: dict = Depends(get_current_admin),
+    _rate: None = Depends(upload_rate_limiter),
 ):
     """Upload an image for a product. Appends to the product's images array."""
     _validate_image(file)
@@ -83,7 +91,11 @@ async def upload_product_image(
 
 
 @router.delete("/product/{product_id}/image")
-async def delete_product_image(product_id: int, image_url: str):
+async def delete_product_image(
+    product_id: int,
+    image_url: str,
+    admin: dict = Depends(get_current_admin),
+):
     """Remove an image URL from the product's images array."""
     product = admin_supabase.from_("products").select("images, image_url").eq("id", product_id).single().execute()
     if not product.data:
@@ -125,6 +137,8 @@ async def delete_product_image(product_id: int, image_url: str):
 async def upload_category_image(
     category_id: int = Path(...),
     file: UploadFile = File(...),
+    admin: dict = Depends(get_current_admin),
+    _rate: None = Depends(upload_rate_limiter),
 ):
     _validate_image(file)
     ext = _get_ext(file.filename or "image.jpg")
@@ -144,6 +158,8 @@ async def upload_category_image(
 async def upload_brand_logo(
     brand_id: int = Path(...),
     file: UploadFile = File(...),
+    admin: dict = Depends(get_current_admin),
+    _rate: None = Depends(upload_rate_limiter),
 ):
     _validate_image(file)
     ext = _get_ext(file.filename or "image.jpg")

@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from database import admin_supabase as supabase
 from models import Brand, BrandCreate, BrandUpdate
+from auth import get_current_admin
 from typing import List
 
 router = APIRouter(prefix="/brands", tags=["brands"])
@@ -26,7 +27,7 @@ def get_brand(brand_id: int):
 
 @router.post("", response_model=Brand, status_code=201)
 @router.post("/", response_model=Brand, status_code=201)
-def create_brand(brand: BrandCreate):
+def create_brand(brand: BrandCreate, admin: dict = Depends(get_current_admin)):
     try:
         data = brand.model_dump()
         response = supabase.table("brands").insert(data).execute()
@@ -38,7 +39,11 @@ def create_brand(brand: BrandCreate):
 
 
 @router.put("/{brand_id}", response_model=Brand)
-def update_brand(brand_id: int, brand: BrandUpdate):
+def update_brand(
+    brand_id: int,
+    brand: BrandUpdate,
+    admin: dict = Depends(get_current_admin),
+):
     data = {k: v for k, v in brand.model_dump().items() if v is not None}
     if not data:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -49,7 +54,7 @@ def update_brand(brand_id: int, brand: BrandUpdate):
 
 
 @router.delete("/{brand_id}")
-def delete_brand(brand_id: int):
+def delete_brand(brand_id: int, admin: dict = Depends(get_current_admin)):
     response = supabase.from_("brands").delete().eq("id", brand_id).execute()
     if not response.data:
         raise HTTPException(status_code=404, detail="Brand not found")

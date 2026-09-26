@@ -1,31 +1,67 @@
-after completion of existing plans
+Current backlog - 
 
 rider app - 
-new order arrives play sound
-check freq of rider loc sent - optimize it make it - if distance move greater than 10 meter and or if no update sent in last 10 seconds
+p0 - new order arrives play sound
+p0 - show full order details
+p0 - show ordering person name and contact - to contact if required
+p0 - in order history - ability to open one and check full details
+later when required - check freq of rider loc sent - optimize it make it - if distance move greater than 10 meter and or if no update sent in last 10 seconds
 
 user app - 
-quantity left (inventory is not being deducted after user orders items as well)
-orders - show all orders not just today's
-order tracking - preparing step dont show rider is on the way - show rider is assigned and remove "Waiting for rider to be assigned." - when rider is assigned if not shot show
-"deliver in time" in top section should be based on OSRM route not just based on lat and long diff between store and location
-in cart screen show "you might also like" - show wishlisted products also
-loading animation like blinkit
-category icon
+p0 - quantity left (inventory is not being deducted after user orders items as well)
+p0 - orders - show all orders not just today's
+p0 - order tracking screen - preparing step dont show rider is on the way - show rider is assigned and remove "Waiting for rider to be assigned." - when rider is assigned if not dont show
+p1 - Pagination on all list endpoints (no unbounded queries) - swipe to load more kind off
+p1 - "deliver in time" in top section should be based on OSRM route not just based on lat and long diff between store and location
+p2 - in cart screen in "you might also like" section - show wishlisted products also
+p2 - category icon
+p3 - loading animation like blinkit
 
 admin panel - 
-in new orders - if current location was chosen instead of showing lat and long show google map hyperlink, if address was chosen show the address correctly
-Category and sub category dropdown must accept text also as a new option
-while cancelling order (pending - add reason options with one of the option allowing to type and add, user should be able to see the reason, later also helpful in notifications)
-bulk import products
-category icon
+p0 - in new orders - if current location was chosen instead of showing lat and long show google map hyperlink, if address was chosen show the address correctly
+p0 - bulk import products
+p0 - fleet & map - map tiles not being shown - same that is being used in user app can it be used
+p0 - fleet & map - last seen info show date as well if date is not today
+p1 - Pagination on all list endpoints (no unbounded queries)
+p2 - while cancelling order (pending - add reason options with one of the option allowing to type and add, user should be able to see the reason, later also helpful in notifications)
+p2 - category icon - maybe ability to add svg
 
-wishlist a product - save in db like cart and order
+platform wise upgrades/bugs - 
+p0 - notification management - push and email, custom notifications
+p0 - version control - auto update or popup
+p1 - wishlist a product - save in db like cart and order
+p1 - ad management - add/delete/update - inactive/active a certain add or whole section itself then app shouldn't show the section based on this
+p2 - Delivery rider rating - dont show if no rating added, if added show avg of all ratings added to a rider
+p2 - product rating - show five start if no ratings added if ratings added for a product show its avg 
 
-ad management - add/delete/update - inactive/active a certain add or whole section itself then app shouldn't show the section based on this
+---------------------------
 
-notification management - push and email
-------------------------
-version control - auto update or popup
-Delivery rider rating - dont show if no rating added, if added show avg of all ratings added to a rider
-product rating - show five start if no ratings added if ratings added for a product show its avg 
+## Phase 8 — Production Hardening 🛡️
+
+**Goal:** Make it production-ready  
+**Duration estimate:** Ongoing
+
+### Tasks
+
+- [ ] **8.1** Supabase Storage CDN — ensure images have proper caching headers
+- [ ] **8.2** Input validation — server-side validation for all new endpoints
+- [ ] **8.3** Admin-only endpoint protection — verify role check on all write endpoints
+- [ ] **8.4** Pagination on all list endpoints (no unbounded queries)
+- [ ] **8.5** Error handling — consistent error response format
+- [ ] **8.6** Rate limiting on upload endpoints
+- [ ] **8.7** Full-text search on products — add PostgreSQL `tsvector` index
+- [ ] **8.8** Write a `TESTING.md` with manual test checklist
+
+-----------------------
+
+
+## 3. Admin Panel (React/Vite)
+
+### Map & Routing Enhancements
+*   **Goal:** Provide fleet managers a clear view of an active rider's route, matching the functionality recently added to the User App.
+*   **Technical Details:**
+    *   **File:** `apps/admin_panel/src/components/LiveMap.tsx`
+    *   **Current State:** The map only drops a polyline connecting raw historical coordinates.
+    *   **Improvement:** When `selectedRiderId` is active, fetch the rider's currently assigned active order from Supabase to obtain `delivery_lat` and `delivery_lng`.
+    *   **OSRM Integration:** Implement a `fetchRoute()` function in React that calls the Open Source Routing Machine (OSRM) API (`https://router.project-osrm.org/route/v1/driving/{rider_lng},{rider_lat};{delivery_lng},{delivery_lat}?overview=full&geometries=geojson`).
+    *   **Rendering:** Extract the GeoJSON coordinates from the OSRM response and feed them into a React-Leaflet `<Polyline>` to display the actual street-following route from the rider to the destination.

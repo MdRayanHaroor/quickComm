@@ -1,6 +1,8 @@
-from fastapi import APIRouter, HTTPException, Query
+import re
+from fastapi import APIRouter, HTTPException, Query, Depends
 from database import admin_supabase as supabase
 from models import Product, ProductCreate, ProductUpdate, ProductListItem, ProductVariant
+from auth import get_current_admin
 from typing import List, Optional
 
 router = APIRouter(prefix="/products", tags=["products"])
@@ -57,29 +59,99 @@ def get_products(
     sort: str = Query("newest", description="newest | price_asc | price_desc | name_asc"),
 ):
     try:
-        query = supabase.from_("products").select("*").eq("store_id", store_id)
+        offset = (page - 1) * limit
 
+        # Base query builder
+        query = supabase.from_("products").select("*").eq("store_id", store_id)
         if category_id is not None:
             query = query.eq("category_id", category_id)
         if brand_id is not None:
             query = query.eq("brand_id", brand_id)
         if is_available is not None:
             query = query.eq("is_available", is_available)
-        if search:
-            query = query.ilike("name", f"%{search}%")
 
-        # Sort (price sorts are done post-fetch via variant aggregation)
+        # Apply sorting
         if sort == "name_asc":
             query = query.order("name")
         else:
             query = query.order("created_at", desc=True)
 
-        # Pagination
-        offset = (page - 1) * limit
+        # Apply pagination range
         query = query.range(offset, offset + limit - 1)
 
-        response = query.execute()
-        products = response.data or []
+        # Handle Search (Task 8.7: tsvector Full-Text Search with safe fallback)
+        if search and search.strip():
+            clean_search = search.strip()
+            products = []
+
+            # 1. First attempt: Prefix full-text search with sanitized alphanumeric tokens
+            cleaned_terms = [re.sub(r'[^\w]', '', w) for w in clean_search.split()]
+            cleaned_terms = [t for t in cleaned_terms if t]
+            if cleaned_terms:
+                try:
+                    prefix_query = " & ".join(f"{t}:*" for t in cleaned_terms)
+                    ft_q = supabase.from_("products").select("*").eq("store_id", store_id)
+                    if category_id is not None:
+                        ft_q = ft_q.eq("category_id", category_id)
+                    if brand_id is not None:
+                        ft_q = ft_q.eq("brand_id", brand_id)
+                    if is_available is not None:
+                        ft_q = ft_q.eq("is_available", is_available)
+                    if sort == "name_asc":
+                        ft_q = ft_q.order("name")
+                    else:
+                        ft_q = ft_q.order("created_at", desc=True)
+                    ft_q = ft_q.range(offset, offset + limit - 1)
+                    ft_resp = ft_q.text_search("search_vector", prefix_query).execute()
+                    products = ft_resp.data or []
+                except Exception as err:
+                    print(f"Full-text prefix search fallback: {err}")
+
+            # 2. Second attempt: web_search mode for natural language / phrases
+            if not products:
+                try:
+                    ws_q = supabase.from_("products").select("*").eq("store_id", store_id)
+                    if category_id is not None:
+                        ws_q = ws_q.eq("category_id", category_id)
+                    if brand_id is not None:
+                        ws_q = ws_q.eq("brand_id", brand_id)
+                    if is_available is not None:
+                        ws_q = ws_q.eq("is_available", is_available)
+                    if sort == "name_asc":
+                        ws_q = ws_q.order("name")
+                    else:
+                        ws_q = ws_q.order("created_at", desc=True)
+                    ws_q = ws_q.range(offset, offset + limit - 1)
+                    ws_resp = ws_q.text_search("search_vector", clean_search, options={"type": "web_search"}).execute()
+                    products = ws_resp.data or []
+                except Exception as err:
+                    print(f"Full-text web_search fallback: {err}")
+
+            # 3. Third attempt: Safe ilike wildcard search
+            if not products:
+                try:
+                    fallback_q = supabase.from_("products").select("*").eq("store_id", store_id)
+                    if category_id is not None:
+                        fallback_q = fallback_q.eq("category_id", category_id)
+                    if brand_id is not None:
+                        fallback_q = fallback_q.eq("brand_id", brand_id)
+                    if is_available is not None:
+                        fallback_q = fallback_q.eq("is_available", is_available)
+                    if sort == "name_asc":
+                        fallback_q = fallback_q.order("name")
+                    else:
+                        fallback_q = fallback_q.order("created_at", desc=True)
+                    fallback_q = fallback_q.range(offset, offset + limit - 1)
+                    safe_ilike = re.sub(r'[*%]', '', clean_search)
+                    fallback_q = fallback_q.ilike("name", f"*{safe_ilike}*")
+                    res = fallback_q.execute()
+                    products = res.data or []
+                except Exception as err:
+                    print(f"Ilike fallback error: {err}")
+                    products = []
+        else:
+            response = query.execute()
+            products = response.data or []
 
         enriched = _enrich_products_with_variant_summary(products)
 
@@ -134,7 +206,7 @@ def get_product(product_id: int):
 
 @router.post("", response_model=Product, status_code=201)
 @router.post("/", response_model=Product, status_code=201)
-def create_product(product: ProductCreate):
+def create_product(product: ProductCreate, admin: dict = Depends(get_current_admin)):
     try:
         data = product.model_dump()
 
@@ -167,7 +239,11 @@ def create_product(product: ProductCreate):
 
 
 @router.put("/{product_id}", response_model=Product)
-def update_product(product_id: int, product: ProductUpdate):
+def update_product(
+    product_id: int,
+    product: ProductUpdate,
+    admin: dict = Depends(get_current_admin),
+):
     data = {k: v for k, v in product.model_dump().items() if v is not None}
     if not data:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -215,7 +291,7 @@ def update_product(product_id: int, product: ProductUpdate):
 
 
 @router.delete("/{product_id}")
-def delete_product(product_id: int):
+def delete_product(product_id: int, admin: dict = Depends(get_current_admin)):
     # Cascade to variants is handled by DB ON DELETE CASCADE
     response = supabase.from_("products").delete().eq("id", product_id).execute()
     if not response.data:
@@ -235,7 +311,7 @@ def autocomplete_products(
         .select("id, name, images, image_url")
         .eq("store_id", store_id)
         .eq("is_available", True)
-        .ilike("name", f"%{q}%")
+        .ilike("name", f"*{q}*")
         .limit(limit)
         .execute()
     )
@@ -264,7 +340,7 @@ class BulkImportPayload(BaseModel):
 
 
 @router.post("/bulk-import")
-def bulk_import_products(payload: BulkImportPayload):
+def bulk_import_products(payload: BulkImportPayload, admin: dict = Depends(get_current_admin)):
     """Bulk import products and their variants from Excel/CSV parsed data."""
     if not payload.products:
         raise HTTPException(status_code=400, detail="No products provided for import")

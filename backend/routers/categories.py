@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from database import admin_supabase as supabase
 from models import Category, CategoryCreate, CategoryUpdate, CategoryTree
+from auth import get_current_admin
 from typing import List, Optional
 
 router = APIRouter(prefix="/categories", tags=["categories"])
@@ -20,7 +21,7 @@ def build_category_tree(categories: list, parent_id=None) -> list:
 def get_categories(
     store_id: int = Query(1),
     active_only: bool = Query(True),
-    parent_id: Optional[int] = Query(None, description="Filter by parent; use 0 for top-level only")
+    parent_id: Optional[int] = Query(None, description="Filter by parent; use 0 for top-level only"),
 ):
     query = supabase.from_("categories").select("*").eq("store_id", store_id)
     if active_only:
@@ -51,7 +52,7 @@ def get_category(category_id: int):
 
 @router.post("", response_model=Category, status_code=201)
 @router.post("/", response_model=Category, status_code=201)
-def create_category(category: CategoryCreate):
+def create_category(category: CategoryCreate, admin: dict = Depends(get_current_admin)):
     try:
         data = category.model_dump()
         response = supabase.table("categories").insert(data).execute()
@@ -63,7 +64,11 @@ def create_category(category: CategoryCreate):
 
 
 @router.put("/{category_id}", response_model=Category)
-def update_category(category_id: int, category: CategoryUpdate):
+def update_category(
+    category_id: int,
+    category: CategoryUpdate,
+    admin: dict = Depends(get_current_admin),
+):
     data = {k: v for k, v in category.model_dump().items() if v is not None}
     if not data:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -74,13 +79,13 @@ def update_category(category_id: int, category: CategoryUpdate):
 
 
 @router.delete("/{category_id}")
-def delete_category(category_id: int):
+def delete_category(category_id: int, admin: dict = Depends(get_current_admin)):
     # Check if category has products
     products = supabase.from_("products").select("id").eq("category_id", category_id).limit(1).execute()
     if products.data:
         raise HTTPException(
             status_code=400,
-            detail="Cannot delete category with products. Re-assign products first."
+            detail="Cannot delete category with products. Re-assign products first.",
         )
     response = supabase.from_("categories").delete().eq("id", category_id).execute()
     if not response.data:

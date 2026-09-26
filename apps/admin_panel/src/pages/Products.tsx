@@ -80,6 +80,7 @@ const Products = () => {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [brandFilter, setBrandFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -89,38 +90,46 @@ const Products = () => {
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
-  const fetchAll = useCallback(async () => {
+  // Debounce search input (350ms) so typing doesn't spam the API on every keystroke
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Load categories and brands once on initial mount
+  useEffect(() => {
+    Promise.all([
+      api.get('/categories/'),
+      api.get('/brands/'),
+    ]).then(([catRes, brandRes]) => {
+      setCategories(catRes.data);
+      setBrands(brandRes.data);
+    }).catch(() => {});
+  }, []);
+
+  const fetchProducts = useCallback(async () => {
     setLoading(true);
     try {
       const params: Record<string, string | number | boolean> = { page, sort };
-      if (search) params.search = search;
+      if (debouncedSearch.trim()) params.search = debouncedSearch.trim();
       if (categoryFilter) params.category_id = parseInt(categoryFilter);
       if (brandFilter) params.brand_id = parseInt(brandFilter);
       if (statusFilter !== '') params.is_available = statusFilter === 'true';
 
-      const [prodRes, catRes, brandRes] = await Promise.all([
-        api.get('/products/', { params }),
-        api.get('/categories/'),
-        api.get('/brands/'),
-      ]);
-
+      const prodRes = await api.get('/products/', { params });
       setProducts(prodRes.data);
-      setCategories(catRes.data);
-      setBrands(brandRes.data);
     } catch (e) {
       toast.error('Failed to load products');
     } finally {
       setLoading(false);
     }
-  }, [page, search, categoryFilter, brandFilter, statusFilter, sort]);
+  }, [page, debouncedSearch, categoryFilter, brandFilter, statusFilter, sort]);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
-
-  // Debounce search
-  useEffect(() => {
-    const t = setTimeout(() => { setPage(1); }, 400);
-    return () => clearTimeout(t);
-  }, [search]);
+  useEffect(() => { fetchProducts(); }, [fetchProducts]);
+  const fetchAll = fetchProducts;
 
   const handleDelete = async (id: number, name: string) => {
     if (!confirm(`Delete "${name}"? This also removes all its variants.`)) return;

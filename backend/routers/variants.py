@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from database import admin_supabase as supabase
 from models import ProductVariant, ProductVariantCreate, ProductVariantUpdate, StockAdjust
+from auth import get_current_admin
 from typing import List
 
 router = APIRouter(prefix="/products", tags=["variants"])
@@ -19,7 +20,11 @@ def get_variants(product_id: int):
 
 
 @router.post("/{product_id}/variants", response_model=ProductVariant, status_code=201)
-def create_variant(product_id: int, variant: ProductVariantCreate):
+def create_variant(
+    product_id: int,
+    variant: ProductVariantCreate,
+    admin: dict = Depends(get_current_admin),
+):
     # Ensure product exists
     product = supabase.from_("products").select("id").eq("id", product_id).single().execute()
     if not product.data:
@@ -38,7 +43,12 @@ def create_variant(product_id: int, variant: ProductVariantCreate):
 
 
 @router.put("/{product_id}/variants/{variant_id}", response_model=ProductVariant)
-def update_variant(product_id: int, variant_id: int, variant: ProductVariantUpdate):
+def update_variant(
+    product_id: int,
+    variant_id: int,
+    variant: ProductVariantUpdate,
+    admin: dict = Depends(get_current_admin),
+):
     data = {k: v for k, v in variant.model_dump().items() if v is not None}
     if not data:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -56,7 +66,11 @@ def update_variant(product_id: int, variant_id: int, variant: ProductVariantUpda
 
 
 @router.delete("/{product_id}/variants/{variant_id}")
-def delete_variant(product_id: int, variant_id: int):
+def delete_variant(
+    product_id: int,
+    variant_id: int,
+    admin: dict = Depends(get_current_admin),
+):
     # Don't allow deleting the last variant
     remaining = (
         supabase.from_("product_variants")
@@ -67,7 +81,7 @@ def delete_variant(product_id: int, variant_id: int):
     if len(remaining.data) <= 1:
         raise HTTPException(
             status_code=400,
-            detail="Cannot delete the last variant. A product must have at least one variant."
+            detail="Cannot delete the last variant. A product must have at least one variant.",
         )
 
     response = (
@@ -83,7 +97,12 @@ def delete_variant(product_id: int, variant_id: int):
 
 
 @router.patch("/{product_id}/variants/{variant_id}/stock")
-def update_stock(product_id: int, variant_id: int, adjustment: StockAdjust):
+def update_stock(
+    product_id: int,
+    variant_id: int,
+    adjustment: StockAdjust,
+    admin: dict = Depends(get_current_admin),
+):
     """
     Adjust stock for a variant.
     positive quantity = add stock, negative = remove stock.
