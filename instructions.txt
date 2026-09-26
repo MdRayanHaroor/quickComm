@@ -23,6 +23,19 @@ adb connect [IP_ADDRESS]
 flutter devices
 flutter run
 
+4. Run User App on Web (iPhone / Mobile Testing):
+- To run with live reload (accessible from phone on same Wi-Fi):
+  cd apps/user_app
+  flutter run -d web-server --web-hostname 0.0.0.0 --web-port 8080 --dart-define-from-file=../supabase_env.json
+
+- To build production web bundle:
+  cd apps/user_app
+  flutter build web --dart-define-from-file=../supabase_env.json
+
+- To serve the built web bundle:
+  python -m http.server 8080 --directory apps/user_app/build/web --bind 0.0.0.0
+  (Access on iPhone Safari: http://<YOUR_LOCAL_IP>:8080)
+
 --------------------------------------------------
 Environment Variables & Configuration Setup:
 

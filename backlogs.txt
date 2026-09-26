@@ -5,9 +5,7 @@ new order arrives play sound
 check freq of rider loc sent - optimize it make it - if distance move greater than 10 meter and or if no update sent in last 10 seconds
 
 user app - 
-# increase view cart floating dock size
-# in home screen add section for "continue browsing" (save product details that user browsed in in-memory to show in this section)
-sign in with google
+orders - show all orders not just today's
 "deliver in time" in top section should be based on OSRM route not just based on lat and long diff between store and location
 in cart screen show "you might also like" - show wishlisted products also
 loading animation like blinkit
