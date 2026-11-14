@@ -8,12 +8,13 @@ if [ ! -d "$HOME/flutter" ]; then
 fi
 export PATH="$PATH:$HOME/flutter/bin"
 
-if [ -d "apps/user_app" ]; then
-  cd apps/user_app
+TARGET_APP="${1:-${APP_TARGET:-apps/user_app}}"
+if [ -d "$TARGET_APP" ]; then
+  cd "$TARGET_APP"
 fi
 
 SUPA_URL="${SUPABASE_URL:-https://iyylimmyuqlgrmsclvqp.supabase.co}"
 SUPA_KEY="${SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml5eWxpbW15dXFsZ3Jtc2NsdnFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcxNTc4NDAsImV4cCI6MjA4MjczMzg0MH0.5Fo43YPkOrxbrSUBCfQwqj8AE7FaLgGFDzAf9S8QBrY}"
 
-echo "=== Building Flutter Web ==="
+echo "=== Building Flutter Web for $(basename $(pwd)) ==="
 flutter build web --dart-define=SUPABASE_URL="$SUPA_URL" --dart-define=SUPABASE_ANON_KEY="$SUPA_KEY"
